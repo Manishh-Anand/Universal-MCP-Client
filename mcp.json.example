@@ -1,0 +1,67 @@
+{
+  "version": "1",
+  "default_model": "qwen2.5:7b",
+  "ollama_base_url": "http://localhost:11434",
+  "servers": [
+    {
+      "name": "local_tools",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["./my_mcp_server.py"],
+      "env": {}
+    },
+    {
+      "name": "weather",
+      "transport": "http",
+      "url": "http://localhost:8000",
+      "auth": {
+        "type": "bearer",
+        "token": "env:WEATHER_API_TOKEN"
+      }
+    },
+    {
+      "name": "database",
+      "transport": "sse",
+      "url": "http://localhost:9000/sse",
+      "auth": {
+        "type": "api_key",
+        "header": "X-API-Key",
+        "value": "env:DB_API_KEY"
+      }
+    }
+  ],
+  "execution": {
+    "max_iterations": 10,
+    "tool_timeout_ms": 5000,
+    "total_timeout_ms": 30000,
+    "max_retries_per_tool": 2
+  },
+  "cache": {
+    "enabled": false,
+    "ttl_seconds": 300,
+    "max_size": 1000,
+    "storage": "memory",
+    "exclude_tools": ["*.insert_*", "*.write_*", "*.delete_*", "*.update_*", "*.create_*"]
+  },
+  "security": {
+    "trusted_servers_only": false,
+    "trusted_servers": [],
+    "sanitize_tool_descriptions": true,
+    "mask_env_values_in_logs": true
+  },
+  "tool_filter": {
+    "strategy": "hybrid",
+    "top_n": 20,
+    "default_whitelist": ["*"],
+    "exclude": []
+  },
+  "session": {
+    "persist": false,
+    "storage_path": "~/.config/umcp/sessions"
+  },
+  "logging": {
+    "level": "info",
+    "trace": true,
+    "output": "stderr"
+  }
+}

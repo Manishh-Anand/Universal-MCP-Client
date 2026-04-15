@@ -1,0 +1,15 @@
+IMPORTANT — Tool Call Format:
+
+This model does not use structured tool calls. To call a tool, output
+ONLY the following block and nothing else in that response:
+
+<tool_call>
+{"name": "<exact_tool_name>", "arguments": {<args as valid JSON>}}
+</tool_call>
+
+Rules:
+- Use the exact tool name from the available tools list.
+- Arguments must be valid JSON matching the tool's parameter schema.
+- Output ONE tool call block per response — never multiple.
+- Do NOT include any other text in a response that contains a tool call.
+- To give a final answer, output plain text with NO tool_call block.
