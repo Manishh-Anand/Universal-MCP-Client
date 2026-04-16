@@ -124,8 +124,9 @@ def run(
         else:
             answer = result.answer
             if no_prefix_display:
-                # Strip "server." prefix from tool mentions in the answer
-                pass
+                import re
+                for srv in cfg.servers:
+                    answer = re.sub(rf'\b{re.escape(srv.name)}\.', '', answer)
             typer.echo(answer)
 
             if verbose or not result.success:
@@ -299,8 +300,8 @@ def servers(
                 await transport.close()
             except NotImplementedError:
                 status = "[yellow]phase 2[/yellow]"
-            except Exception as exc:
-                status = f"[red]error: {exc}[/red]"
+            except BaseException as exc:
+                status = f"[red]error: {type(exc).__name__}[/red]"
 
             table.add_row(s.name, s.transport, location, auth_type, status)
 
@@ -409,30 +410,44 @@ def trace_tail(
     interval: float = typer.Option(0.5, "--interval", help="Poll interval in seconds"),
     filter: Optional[str] = typer.Option(None, "--filter", help="Filter by tool glob"),
 ) -> None:
-    """Live-tail trace output while a run is in progress."""
-    console.print("[dim]Tailing trace... (Ctrl+C to stop)[/dim]")
-    seen_ids: set[str] = set()
+    """Live-tail trace output while a run is in progress.
+
+    Reads from the live JSONL file written by the agent loop in real time.
+    Shows entries from the current (or most recent) run only.
+    """
+    from .trace import _LIVE_TRACE_PATH
+    import fnmatch as _fnmatch
+
+    console.print("[dim]Tailing live trace... start a run in another terminal. Ctrl+C to stop.[/dim]")
+
     try:
-        while True:
-            entries = Tracer.load_last()
-            for entry in entries:
-                tid = entry.get("trace_id", "")
-                if tid and tid not in seen_ids:
-                    if filter:
-                        import fnmatch
-                        if not fnmatch.fnmatch(entry.get("tool", ""), filter):
-                            seen_ids.add(tid)
-                            continue
-                    seen_ids.add(tid)
+        with _LIVE_TRACE_PATH.open("a+", encoding="utf-8") as f:
+            # Seek to start so we catch any already-written entries from current run
+            f.seek(0)
+            while True:
+                line = f.readline()
+                if line:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    tool = entry.get("tool", "?")
+                    if filter and not _fnmatch.fnmatch(tool, filter):
+                        continue
                     status = entry.get("status", "?")
                     latency = entry.get("latency_ms", 0)
-                    tool = entry.get("tool", "?")
                     color = "green" if status == "success" else "red" if status == "error" else "yellow"
                     console.print(
                         f"[{color}]{status:12}[/{color}] [cyan]{tool}[/cyan] "
                         f"[dim]{latency:.0f}ms[/dim]"
                     )
-            time.sleep(interval)
+                else:
+                    time.sleep(interval)
+    except FileNotFoundError:
+        console.print("[yellow]No live trace file found. Start a run first.[/yellow]")
     except KeyboardInterrupt:
         console.print("\n[dim]Tail stopped.[/dim]")
 
@@ -543,7 +558,7 @@ def config_validate(
         raise typer.Exit(1)
     try:
         cfg = AppConfig.load(path)
-        console.print(f"[green]✓ Valid[/green] — {len(cfg.servers)} server(s) configured")
+        console.print(f"[green]Valid[/green] - {len(cfg.servers)} server(s) configured")
         for s in cfg.servers:
             console.print(f"  [cyan]{s.name}[/cyan] ({s.transport})")
     except Exception as exc:
@@ -620,6 +635,27 @@ def sessions_delete(
         console.print(f"[green]Deleted session '{session_id}'.[/green]")
     else:
         console.print(f"[yellow]Session '{session_id}' not found.[/yellow]")
+
+
+# ------------------------------------------------------------------ #
+# umcp web
+# ------------------------------------------------------------------ #
+
+@app.command()
+def web(
+    config: Optional[str] = typer.Option(None, "--config", "-c"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind"),
+    port: int = typer.Option(8765, "--port", "-p", help="Port to listen on"),
+    server: Optional[str] = typer.Option(None, "--server", "-s"),
+) -> None:
+    """Start the web dashboard at http://localhost:8765"""
+    cfg = _load_config(config, None, server)
+
+    async def _serve() -> None:
+        from .web import serve
+        await serve(cfg, host=host, port=port)
+
+    asyncio.run(_serve())
 
 
 if __name__ == "__main__":

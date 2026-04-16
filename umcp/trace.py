@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 _LAST_TRACE_PATH = Path.home() / ".config" / "umcp" / "last_trace.json"
+_LIVE_TRACE_PATH = Path.home() / ".config" / "umcp" / "trace_live.jsonl"
 
 
 @dataclass
@@ -38,11 +39,19 @@ class Tracer:
         self.session_id = session_id
         self.enabled = enabled
         self._entries: list[TraceEntry] = []
+        # Clear the live file so `trace tail` always shows the current run only
+        if enabled:
+            try:
+                _LIVE_TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                _LIVE_TRACE_PATH.write_text("", encoding="utf-8")
+            except Exception:
+                pass
 
     def record(self, entry: TraceEntry) -> None:
         self._entries.append(entry)
         if self.enabled:
             _emit(entry)
+            _append_live(entry)
 
     def start_tool_call(
         self,
@@ -154,6 +163,16 @@ def _emit(entry: TraceEntry) -> None:
     try:
         line = json.dumps(asdict(entry), default=str)
         print(line, file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+def _append_live(entry: TraceEntry) -> None:
+    """Append a single entry to the live JSONL file for `trace tail`."""
+    try:
+        line = json.dumps(asdict(entry), default=str) + "\n"
+        with _LIVE_TRACE_PATH.open("a", encoding="utf-8") as f:
+            f.write(line)
     except Exception:
         pass
 

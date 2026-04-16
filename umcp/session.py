@@ -64,7 +64,7 @@ class SessionStore:
     """
 
     def __init__(self, storage_path: str | Path | None = None) -> None:
-        self._dir = Path(storage_path) if storage_path else _SESSIONS_DIR
+        self._dir = Path(storage_path).expanduser() if storage_path else _SESSIONS_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, session_id: str) -> Path:

@@ -252,6 +252,7 @@ class AgentLoop:
                 added_calls, added_hits = await self._execute_parallel(
                     calls_to_process, filtered_tools, session, supports_native,
                     retry_state, iteration, effective_cache_enabled,
+                    dry_run=dry_run,
                 )
                 tool_calls_made += added_calls
                 cache_hits += added_hits
@@ -435,6 +436,7 @@ class AgentLoop:
         retry_state: RetryState,
         iteration: int,
         effective_cache_enabled: bool,
+        dry_run: bool = False,
     ) -> tuple[int, int]:
         """Execute multiple independent tool calls concurrently via asyncio.gather.
 
@@ -449,27 +451,40 @@ class AgentLoop:
             file=sys.stderr, flush=True,
         )
 
-        async def _run_one(tc_name: str, tc_args: dict) -> tuple[str, str]:
-            """Returns (result_str, status)."""
+        async def _run_one(tc_name: str, tc_args: dict) -> tuple[str, str, bool]:
+            """Returns (result_str, status, cache_hit)."""
             tool_info = _find_tool(filtered_tools, tc_name)
             if tool_info is None:
-                return f"Tool '{tc_name}' not found.", "error"
+                return f"Tool '{tc_name}' not found.", "error", False
             valid, errors, coerced = validate_and_coerce(tool_info.input_schema, tc_args)
             if not valid:
-                return f"Schema error: {'; '.join(errors)}", "error"
+                return f"Schema error: {'; '.join(errors)}", "error", False
+            if dry_run:
+                import json as _json
+                print(f"[DRY RUN] Would call: {tc_name}({_json.dumps(coerced)})", flush=True)
+                return f"Dry run: '{tc_name}' not executed.", "dry_run", False
+            # Check cache before executing
+            if effective_cache_enabled and not self.cache.is_excluded(tool_info.full_name):
+                cache_key = self.cache.make_key(tc_name, coerced, tool_info.input_schema)
+                cached_value = self.cache.get(cache_key)
+                if cached_value is not None:
+                    return str(cached_value), "cache_hit", True
             result_str, status, _ = await self._execute_with_retry(
                 tool_info, coerced, retry_state, f"{tc_name}:{iteration}", iteration
             )
-            return result_str, status
+            return result_str, status, False
 
         results = await asyncio.gather(*[_run_one(n, a) for n, a in calls_to_process])
 
         total_calls = 0
-        for (tc_name, _), (result_str, _status) in zip(calls_to_process, results):
+        total_hits = 0
+        for (tc_name, _), (result_str, _status, was_cache_hit) in zip(calls_to_process, results):
             session.add_tool_result(result_str, native_mode=supports_native)
             total_calls += 1
+            if was_cache_hit:
+                total_hits += 1
 
-        return total_calls, 0  # cache hits not tracked in parallel mode yet
+        return total_calls, total_hits
 
     async def _execute_with_retry(
         self,

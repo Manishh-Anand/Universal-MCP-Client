@@ -99,6 +99,8 @@ class MCPClient:
             await self._ollama.close()
         if self._tracer:
             self._tracer.save_last()
+        if self._cache:
+            self._cache.save_stats()
         self._connected = False
 
     async def __aenter__(self) -> "MCPClient":

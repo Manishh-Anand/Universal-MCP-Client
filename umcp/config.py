@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import time as _time
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+# Module-level OAuth2 token cache: key -> (access_token, expires_at_unix)
+_oauth2_token_cache: dict[str, tuple[str, float]] = {}
 
 
 class AuthConfig(BaseModel):
@@ -38,9 +42,49 @@ class AuthConfig(BaseModel):
             val = self._resolve(self.value)
             return {self.header: val} if self.header and val else {}
         if self.type == "oauth2":
-            # OAuth2 token resolution is handled by transport layer at runtime
-            return {}
+            return self._get_oauth2_headers()
         return {}
+
+    def _get_oauth2_headers(self) -> dict[str, str]:
+        """Fetch an OAuth2 client_credentials token, caching until near-expiry."""
+        if not self.token_url:
+            return {}
+
+        cache_key = f"{self.token_url}:{self.client_id}"
+        cached = _oauth2_token_cache.get(cache_key)
+        if cached:
+            token, expires_at = cached
+            if _time.time() < expires_at - 30:   # 30-second buffer
+                return {"Authorization": f"Bearer {token}"}
+
+        client_id = self._resolve(self.client_id)
+        client_secret = self._resolve(self.client_secret)
+
+        try:
+            import httpx
+            with httpx.Client(timeout=10.0) as http:
+                resp = http.post(
+                    self.token_url,
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": client_id or "",
+                        "client_secret": client_secret or "",
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            raise ValueError(
+                f"OAuth2 token fetch failed for {self.token_url!r}: {exc}"
+            ) from exc
+
+        token = data.get("access_token")
+        if not token:
+            raise ValueError(f"OAuth2 response missing 'access_token': {data}")
+
+        expires_in = int(data.get("expires_in", 3600))
+        _oauth2_token_cache[cache_key] = (token, _time.time() + expires_in)
+        return {"Authorization": f"Bearer {token}"}
 
 
 class ServerConfig(BaseModel):

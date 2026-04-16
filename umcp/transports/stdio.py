@@ -76,7 +76,12 @@ class StdioTransport(BaseTransport):
             return ToolResult(success=False, content=None, error=str(exc))
 
     async def close(self) -> None:
-        await self._exit_stack.aclose()
+        # On Windows, anyio subprocess pipe teardown can raise CancelledError or
+        # ClosedResourceError during event-loop shutdown — suppress both safely.
+        try:
+            await self._exit_stack.aclose()
+        except BaseException:
+            pass
         self._connected = False
 
     @property

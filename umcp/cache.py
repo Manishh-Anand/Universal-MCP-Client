@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from .config import CacheConfig
 
 _FILE_CACHE_DIR = Path.home() / ".config" / "umcp" / "cache"
+_STATS_FILE = Path.home() / ".config" / "umcp" / "cache" / "stats.json"
 
 
 @dataclass
@@ -35,8 +36,10 @@ class ResponseCache:
     def __init__(self, config: "CacheConfig") -> None:
         self.config = config
         self._store: dict[str, CacheEntry] = {}   # in-memory store
-        self._hits = 0
-        self._misses = 0
+        # Load lifetime totals from disk so `umcp cache stats` is meaningful across runs
+        _saved = self._load_persistent_stats()
+        self._hits: int = _saved.get("hits", 0)
+        self._misses: int = _saved.get("misses", 0)
 
     def make_key(
         self,
@@ -115,11 +118,32 @@ class ResponseCache:
             expires_at=time.monotonic() + self.config.ttl_seconds,
         )
 
+    def save_stats(self) -> None:
+        """Persist cumulative hit/miss counters to disk."""
+        try:
+            _STATS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _STATS_FILE.write_text(
+                json.dumps({"hits": self._hits, "misses": self._misses}),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _load_persistent_stats(self) -> dict:
+        if _STATS_FILE.exists():
+            try:
+                return json.loads(_STATS_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {"hits": 0, "misses": 0}
+
     def _mem_clear(self) -> int:
         count = len(self._store)
         self._store.clear()
         self._hits = 0
         self._misses = 0
+        # Reset persistent stats too
+        self.save_stats()
         return count
 
     def _evict_oldest(self) -> None:
