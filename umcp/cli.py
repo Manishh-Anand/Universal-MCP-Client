@@ -18,6 +18,13 @@ from .client import MCPClient
 from .config import AppConfig
 from .trace import Tracer
 
+# Load .env from project root before anything else touches os.environ
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(override=False)
+except ImportError:
+    pass
+
 app = typer.Typer(
     name="umcp",
     help="Universal MCP Client — local LLM (Ollama) + any MCP server.",
@@ -181,6 +188,9 @@ def chat(
                     "[bold green]umcp chat[/bold green] — type your task, Ctrl+C to exit\n"
                 )
 
+            # In-memory history for sessionless chat — carries context between turns
+            chat_history: list[dict] = []
+
             while True:
                 try:
                     user_prompt = typer.prompt("you")
@@ -200,8 +210,16 @@ def chat(
                     tools=_tool_list(tools),
                     stream=True,
                     session_id=session_id,
+                    prior_messages=chat_history if not session_id else None,
                     system_prompt=system_prompt,
                 )
+
+                # Update in-memory history for next turn (no-session mode only)
+                if not session_id and result.messages:
+                    chat_history = [m for m in result.messages if m.get("role") != "system"]
+                    # Cap at 30 messages to avoid filling the context window
+                    if len(chat_history) > 30:
+                        chat_history = chat_history[-30:]
 
                 # In stream mode loop.py already printed tokens; print trailing newline
                 console.print()
@@ -653,7 +671,8 @@ def web(
 
     async def _serve() -> None:
         from .web import serve
-        await serve(cfg, host=host, port=port)
+        cfg_path = Path(config) if config else None
+        await serve(cfg, host=host, port=port, config_path=cfg_path)
 
     asyncio.run(_serve())
 

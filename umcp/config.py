@@ -115,7 +115,8 @@ class ExecutionConfig(BaseModel):
     tool_timeout_ms: int = 5000
     total_timeout_ms: int = 30000
     max_retries_per_tool: int = 2
-    parallel_tools: bool = False   # Phase 3.5: execute concurrent tool calls with asyncio.gather
+    parallel_tools: bool = False
+    max_tool_result_bytes: int = 32768  # 32 KB — tool results truncated beyond this
 
 
 class CacheConfig(BaseModel):
@@ -136,11 +137,13 @@ class SecurityConfig(BaseModel):
     trusted_servers: list[str] = Field(default_factory=list)
     sanitize_tool_descriptions: bool = True
     mask_env_values_in_logs: bool = True
+    allow_remote_ollama: bool = False  # set True to allow non-loopback ollama_base_url
 
 
 class SessionConfig(BaseModel):
     persist: bool = False
     storage_path: str = "~/.config/umcp/sessions"
+    max_messages: int = 50  # web sessions; 0 = unlimited
 
 
 class LoggingConfig(BaseModel):
@@ -173,6 +176,36 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     tool_filter: ToolFilterConfig = Field(default_factory=ToolFilterConfig)
     schema_validation: SchemaValidationConfig = Field(default_factory=SchemaValidationConfig)
+    # Web dashboard security
+    dashboard_api_key: str | None = Field(
+        default=None,
+        description="API key required for all /api/* routes. Use 'env:VAR_NAME' to read from env.",
+    )
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:8765", "http://127.0.0.1:8765"],
+    )
+
+    def resolve_dashboard_api_key(self) -> str | None:
+        """Resolve dashboard_api_key — supports 'env:VAR_NAME' indirection."""
+        raw = self.dashboard_api_key
+        if raw is None:
+            # Also check the conventional env var directly
+            return os.environ.get("UMCP_API_KEY") or None
+        if raw.startswith("env:"):
+            return os.environ.get(raw[4:]) or None
+        return raw or None
+
+    @model_validator(mode="after")
+    def _check_ollama_url(self) -> "AppConfig":
+        from urllib.parse import urlparse
+        hostname = (urlparse(self.ollama_base_url).hostname or "").lower()
+        loopback = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+        if hostname not in loopback and not self.security.allow_remote_ollama:
+            raise ValueError(
+                f"ollama_base_url points to non-loopback host '{hostname}'. "
+                "Set security.allow_remote_ollama=true in mcp.json to allow remote Ollama."
+            )
+        return self
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "AppConfig":

@@ -67,6 +67,12 @@ def decide_retry(reason: RetryReason, retry_count: int, max_retries: int) -> Ret
     return RetryDecision.ABORT
 
 
+def _closest_tool(name: str, available: list[str]) -> str | None:
+    import difflib
+    matches = difflib.get_close_matches(name, available, n=1, cutoff=0.4)
+    return matches[0] if matches else None
+
+
 def build_correction_message(
     reason: RetryReason,
     tool_name: str,
@@ -76,10 +82,12 @@ def build_correction_message(
     """Build the correction message to inject into the conversation."""
     if reason == RetryReason.HALLUCINATION:
         tool_list = ", ".join(available_tools[:20])
+        suggestion = _closest_tool(tool_name, available_tools)
+        hint = f" Did you mean '{suggestion}'?" if suggestion else ""
         return (
-            f"Error: Tool '{tool_name}' does not exist. "
-            f"You MUST only call tools from this list: [{tool_list}]. "
-            f"Try again using an available tool."
+            f"Error: Tool '{tool_name}' does not exist.{hint} "
+            f"You MUST call one of these exact tool names: [{tool_list}]. "
+            f"Do NOT give a final answer — call the correct tool now."
         )
     if reason == RetryReason.SCHEMA_FAILURE:
         return (

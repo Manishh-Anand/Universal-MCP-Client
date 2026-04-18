@@ -8,6 +8,33 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&display=swap" rel="stylesheet">
 <style>
+/* ─── AUTH MODAL ─────────────────────────────────────────────────────── */
+#auth-modal {
+  display:none; position:fixed; inset:0; z-index:99999;
+  background:rgba(6,6,5,0.93); backdrop-filter:blur(4px);
+  align-items:center; justify-content:center;
+}
+#auth-modal.open { display:flex; }
+.auth-box {
+  background:var(--bg2); border:1px solid var(--rule3);
+  padding:32px 28px; max-width:360px; width:90%;
+}
+.auth-box h2 { font-family:var(--font-d); font-size:22px; color:var(--amber-b); margin-bottom:8px; letter-spacing:0.08em; }
+.auth-box p { font-size:11px; color:var(--ink3); margin-bottom:20px; line-height:1.65; }
+.auth-input {
+  width:100%; background:var(--bg3); border:1px solid var(--rule3);
+  border-left:2px solid var(--amber-d); padding:8px 10px;
+  font-family:var(--font-m); font-size:12px; color:var(--ink); margin-bottom:12px; display:block;
+}
+.auth-input:focus { border-color:var(--amber); box-shadow:var(--glow-a); outline:none; }
+.auth-submit {
+  width:100%; background:var(--amber-dim); border:1px solid var(--amber-d);
+  color:var(--amber-b); padding:9px; font-family:var(--font-m); font-size:12px;
+  letter-spacing:0.1em; cursor:pointer; transition:background 0.12s;
+}
+.auth-submit:hover { background:var(--amber-d); color:var(--ink); }
+.auth-err { font-size:10px; color:var(--red); margin-top:8px; display:none; }
+
 /* ─── RESET ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -88,7 +115,7 @@ body::before {
 #app {
   display: grid;
   grid-template-rows: 46px 1fr;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 210px 1fr;
   height: 100vh;
 }
 
@@ -104,7 +131,7 @@ body::before {
   font-family: var(--font-d); font-size: 26px; letter-spacing: 0.06em;
   color: var(--ink); padding: 0 18px;
   border-right: 1px solid var(--rule2);
-  display: flex; align-items: center; gap: 0;
+  display: flex; align-items: center;
   flex-shrink: 0;
   background: var(--bg2);
   position: relative;
@@ -115,14 +142,13 @@ body::before {
   background: var(--amber-d);
 }
 .tb-logo .c { color: var(--amber); }
-.tb-logo .dash { color: var(--ink3); font-size: 18px; margin: 0 4px; }
 .tb-meta { display: flex; align-items: stretch; flex: 1; }
 .tb-item {
   display: flex; align-items: center; flex-direction: column; justify-content: center;
-  padding: 0 20px;
+  padding: 0 18px;
   border-right: 1px solid var(--rule);
   gap: 1px;
-  min-width: 80px;
+  min-width: 72px;
   transition: background 0.15s;
 }
 .tb-item:hover { background: var(--bg2); }
@@ -131,13 +157,13 @@ body::before {
   color: var(--ink3); font-weight: 600;
 }
 .tb-val {
-  font-size: 15px; color: var(--ink); font-weight: 500;
+  font-size: 14px; color: var(--ink); font-weight: 500;
   letter-spacing: 0.02em;
 }
 .tb-val.amber { color: var(--amber); }
 .tb-status {
   margin-left: auto; display: flex; align-items: center; gap: 10px;
-  padding: 0 20px; border-left: 1px solid var(--rule);
+  padding: 0 18px; border-left: 1px solid var(--rule);
 }
 .live-indicator { display: flex; align-items: center; gap: 7px; }
 .pulse-dot {
@@ -166,9 +192,7 @@ body::before {
   color: var(--ink3); padding: 12px 14px 8px;
   display: flex; align-items: center; gap: 8px;
 }
-.sb-heading::after {
-  content: ''; flex: 1; height: 1px; background: var(--rule);
-}
+.sb-heading::after { content: ''; flex: 1; height: 1px; background: var(--rule); }
 
 .server-item {
   display: flex; align-items: center; gap: 8px;
@@ -178,58 +202,74 @@ body::before {
 }
 .server-item.live { border-left-color: var(--green); }
 .server-item.dead { border-left-color: var(--red); opacity: 0.6; }
-.server-dot {
-  width: 4px; height: 4px; border-radius: 50%;
-  background: var(--green); flex-shrink: 0;
-}
+.server-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
 .server-dot.dead { background: var(--red); }
-.server-name {
-  flex: 1; color: var(--ink2); font-size: 11px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+.server-name { flex: 1; color: var(--ink2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .server-count {
   font-size: 9px; color: var(--amber);
   background: var(--amber-dim); border: 1px solid var(--amber-d);
   padding: 1px 5px; flex-shrink: 0;
 }
-.sb-footer {
-  padding: 8px 14px 12px;
-  font-size: 10px; color: var(--ink3);
-  line-height: 1.7;
-}
+.sb-footer { padding: 8px 14px 10px; font-size: 10px; color: var(--ink3); line-height: 1.7; }
 .sb-footer strong { color: var(--amber); }
 
-/* Session block */
-.sb-session { padding: 10px 14px; }
-.sb-session label {
-  font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--ink3); display: block; margin-bottom: 6px;
-}
-.sb-session input {
+/* Model selector */
+.sb-model { padding: 8px 14px 10px; }
+.model-sel {
   width: 100%; background: var(--bg2);
   border: 1px solid var(--rule2); border-left: 2px solid var(--amber-d);
   padding: 5px 8px; font-size: 11px; color: var(--ink);
-  transition: border-color 0.15s;
+  cursor: pointer; appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236B4006'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
 }
-.sb-session input:focus { border-color: var(--amber-d); box-shadow: var(--glow-a); }
+.model-sel:focus { border-color: var(--amber); box-shadow: var(--glow-a); }
+.model-sel option { background: var(--bg2); color: var(--ink); }
 
-.session-list { margin-top: 8px; display: flex; flex-direction: column; gap: 1px; }
-.session-chip {
-  font-size: 10px; color: var(--ink3); padding: 4px 8px;
-  background: var(--bg2); cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: all 0.1s;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  display: flex; align-items: center; gap: 6px;
+/* Chat session list (ChatGPT-style) */
+.sb-chats { display:flex; flex-direction:column; flex:1; overflow:hidden; border-top:1px solid var(--rule); }
+.sb-chats-hdr {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 14px 8px; flex-shrink:0;
 }
-.session-chip::before { content: '›'; color: var(--ink4); }
-.session-chip:hover { border-left-color: var(--amber-d); color: var(--ink2); background: var(--bg3); }
-.session-chip:hover::before { color: var(--amber); }
-.session-chip.active { border-left-color: var(--amber); color: var(--amber-b); }
-.session-chip.active::before { color: var(--amber); }
+.sb-chats-title { font-size:9px; letter-spacing:0.2em; text-transform:uppercase; color:var(--ink3); }
+.new-chat-btn {
+  font-size:9px; letter-spacing:0.1em; text-transform:uppercase;
+  color:var(--amber-b); border:1px solid var(--amber-d);
+  background:var(--amber-dim); padding:3px 8px; transition:all 0.12s;
+}
+.new-chat-btn:hover { background:var(--amber-d); color:var(--ink); }
+#chat-list { overflow-y:auto; flex:1; padding-bottom:8px; }
+.sg-label {
+  font-size:8px; letter-spacing:0.2em; text-transform:uppercase;
+  color:var(--ink4); padding:10px 14px 3px;
+}
+.session-item {
+  display:flex; align-items:stretch; cursor:pointer;
+  border-left:2px solid transparent; transition:background 0.08s, border-color 0.08s;
+}
+.session-item:hover { background:var(--bg2); border-left-color:var(--rule3); }
+.session-item.active { background:var(--bg3); border-left-color:var(--amber); }
+.si-content { flex:1; min-width:0; padding:7px 6px 7px 12px; }
+.si-title {
+  font-size:11px; color:var(--ink2);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.3;
+}
+.session-item.active .si-title { color:var(--amber-b); }
+.si-meta { font-size:9px; color:var(--ink4); margin-top:2px; }
+.si-del {
+  flex-shrink:0; width:26px; display:none;
+  align-items:center; justify-content:center;
+  font-size:14px; color:var(--ink3); transition:color 0.1s;
+}
+.session-item:hover .si-del { display:flex; }
+.si-del:hover { color:var(--red); }
 
 /* Options block */
-.sb-options { padding: 10px 14px 12px; }
+.sb-options { padding: 8px 14px 10px; }
 .opt-row {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 0; font-size: 10px; color: var(--ink3);
@@ -244,6 +284,14 @@ body::before {
   transition: border-color 0.1s, background 0.1s;
 }
 .opt-row.on .toggle-box { border-color: var(--amber-d); background: var(--amber-dim); }
+.reload-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0; font-size: 10px; color: var(--ink3);
+  cursor: pointer; user-select: none;
+  border: none; background: none; width: 100%; text-align: left;
+}
+.reload-btn:hover { color: var(--amber); }
+.reload-icon { font-size: 10px; }
 
 /* ─── MAIN ───────────────────────────────────────────────────────────── */
 #main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg-solid); }
@@ -254,7 +302,7 @@ body::before {
 }
 .tab-btn {
   font-family: var(--font-d); font-size: 15px; letter-spacing: 0.12em;
-  padding: 0 22px; height: 38px; color: var(--ink3);
+  padding: 0 18px; height: 38px; color: var(--ink3);
   border-right: 1px solid var(--rule);
   transition: color 0.12s, background 0.12s;
   position: relative; user-select: none;
@@ -299,57 +347,52 @@ body::before {
   font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase;
   font-weight: 600; flex-shrink: 0;
 }
-.msg-role.user     { color: var(--ink3); }
+.msg-role.user      { color: var(--ink3); }
 .msg-role.assistant { color: var(--amber); }
 .msg-role.system-note { color: var(--ink4); }
 .msg-ts { font-size: 9px; color: var(--ink4); }
 
-.msg-body {
-  color: var(--ink);
-  line-height: 1.7;
-  word-break: break-word;
-}
+.msg-body { color: var(--ink); line-height: 1.7; word-break: break-word; }
 .msg-body.user-text {
-  background: var(--bg2);
-  border-left: 2px solid var(--rule3);
-  padding: 9px 14px;
-  color: var(--ink2);
-  display: block;
-  white-space: pre-wrap;
+  background: var(--bg2); border-left: 2px solid var(--rule3);
+  padding: 9px 14px; color: var(--ink2); display: block; white-space: pre-wrap;
 }
-.msg-body.assistant-text {
-  max-width: 90%;
-  white-space: pre-wrap;
+.msg-body.assistant-text { max-width: 90%; white-space: pre-wrap; }
+.msg-body.system-text { color: var(--ink3); font-size: 11px; }
+
+/* Streaming body */
+.stream-body { max-width: 90%; }
+.stream-tools { display: flex; flex-direction: column; gap: 3px; margin-bottom: 2px; }
+.stream-thinking {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--ink3); font-size: 11px; padding: 4px 0;
 }
-.msg-body.system-text {
-  color: var(--ink3); font-size: 11px;
+.stream-answer {
+  color: var(--ink); line-height: 1.7; white-space: pre-wrap;
+  word-break: break-word; margin-top: 2px;
 }
+.stream-answer.has-content { margin-top: 8px; }
 
 /* Tool call blocks */
 .tool-call-block {
   display: flex; align-items: stretch;
   border: 1px solid var(--amber-d); background: var(--bg2);
-  margin: 4px 0; width: 100%; max-width: 620px;
+  margin: 2px 0; width: 100%; max-width: 580px;
   transition: border-color 0.15s;
-  overflow: hidden;
-  cursor: pointer;
+  overflow: hidden; cursor: pointer;
 }
 .tool-call-block:hover { border-color: var(--amber); }
 .tool-call-block.collapsed .tc-expand { display: none; }
-.tc-rail {
-  width: 3px; background: var(--amber-d); flex-shrink: 0;
-  transition: background 0.15s;
-}
+.tc-rail { width: 3px; background: var(--amber-d); flex-shrink: 0; transition: background 0.15s; }
 .tool-call-block:hover .tc-rail { background: var(--amber); }
-.tc-rail.ok  { background: var(--green); }
-.tc-rail.err { background: var(--red); }
+.tc-rail.ok    { background: var(--green); }
+.tc-rail.err   { background: var(--red); }
 .tc-rail.cache { background: var(--blue); }
 .tc-content { padding: 6px 10px; flex: 1; min-width: 0; }
 .tc-top { display: flex; align-items: center; gap: 8px; }
 .tc-kind {
   font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase;
-  padding: 2px 5px; border: 1px solid;
-  flex-shrink: 0;
+  padding: 2px 5px; border: 1px solid; flex-shrink: 0;
 }
 .tc-kind.tool  { color: var(--amber); border-color: var(--amber-d); background: var(--amber-dim); }
 .tc-kind.cache { color: var(--blue);  border-color: var(--blue-dim); background: var(--blue-dim); }
@@ -366,6 +409,8 @@ body::before {
 }
 .tc-result-line.ok  { color: var(--green); }
 .tc-result-line.err { color: var(--red); }
+.tc-pending { display: flex; align-items: center; gap: 8px; }
+.tc-pending .think-dots { margin-left: auto; }
 
 /* Thinking indicator */
 .thinking-block {
@@ -393,38 +438,32 @@ body::before {
 }
 .run-stat { display: flex; align-items: center; gap: 4px; }
 .run-stat strong { color: var(--ink2); font-size: 10px; }
-.run-stat.ok strong { color: var(--green); }
+.run-stat.ok  strong { color: var(--green); }
 .run-stat.bad strong { color: var(--red); }
-
-/* Typing cursor */
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0; }
-}
-.typing-cursor::after {
-  content: '▍'; color: var(--amber); font-size: 0.9em;
-  animation: cursor-blink 0.8s step-end infinite;
-  margin-left: 1px;
-}
 
 /* Input area */
 #chat-input-area {
   border-top: 1px solid var(--rule2);
   background: var(--bg1);
   padding: 10px 20px;
-  display: flex; gap: 10px; align-items: flex-end;
+  display: flex; gap: 8px; align-items: flex-end;
   flex-shrink: 0;
 }
+.file-btn {
+  font-family: var(--font-m); font-size: 9px; letter-spacing: 0.1em;
+  color: var(--ink3); border: 1px solid var(--rule2);
+  background: var(--bg2); padding: 0 8px; height: 36px;
+  flex-shrink: 0; align-self: flex-end; margin-bottom: 7px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.file-btn:hover { color: var(--amber); border-color: var(--amber-d); }
 .input-wrap {
   flex: 1; display: flex; flex-direction: column; gap: 4px;
   background: var(--bg2); border: 1px solid var(--rule2);
   border-left: 2px solid var(--amber-d);
   padding: 0; transition: border-color 0.15s, box-shadow 0.15s;
 }
-.input-wrap:focus-within {
-  border-color: var(--amber-d);
-  box-shadow: var(--glow-a);
-}
+.input-wrap:focus-within { border-color: var(--amber-d); box-shadow: var(--glow-a); }
 #prompt-input {
   padding: 9px 12px 6px;
   resize: none; min-height: 42px; max-height: 160px;
@@ -500,10 +539,7 @@ kbd {
 .tc-tool-name { font-size: 11px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-tool-desc { font-size: 10px; color: var(--ink2); margin-top: 2px; line-height: 1.4;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.tc-schema {
-  display: none; border-top: 1px solid var(--rule2);
-  padding: 8px 11px; background: var(--bg1);
-}
+.tc-schema { display: none; border-top: 1px solid var(--rule2); padding: 8px 11px; background: var(--bg1); }
 .tool-card.expanded .tc-schema { display: block; }
 .tc-schema pre { font-size: 9px; color: var(--ink3); white-space: pre-wrap; line-height: 1.5; }
 .tc-expand-hint { font-size: 9px; color: var(--ink3); padding: 0 11px 8px; }
@@ -531,18 +567,37 @@ kbd {
 .trace-table th {
   font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase;
   color: var(--ink3); font-weight: 600; text-align: left;
-  padding: 8px 16px; border-bottom: 1px solid var(--rule2);
+  padding: 8px 14px; border-bottom: 1px solid var(--rule2);
   background: var(--bg1); position: sticky; top: 0;
 }
-.trace-table td { padding: 7px 16px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
-.trace-table tr:hover td { background: var(--bg2); }
+.trace-table td { padding: 7px 14px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.trace-row { cursor: pointer; transition: background 0.08s; }
+.trace-row:hover td { background: var(--bg2); }
+.trace-row.active td { background: var(--bg3); }
+.trace-detail-row td { padding: 0; }
+.trace-detail {
+  display: flex; gap: 0;
+  border-bottom: 2px solid var(--amber-d);
+  background: var(--bg2);
+}
+.td-section { flex: 1; padding: 10px 14px; border-right: 1px solid var(--rule); }
+.td-section:last-child { border-right: none; }
+.td-lbl {
+  font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink3); margin-bottom: 6px;
+}
+.td-section pre {
+  font-size: 9px; color: var(--ink2); white-space: pre-wrap;
+  line-height: 1.5; max-height: 160px; overflow-y: auto;
+  word-break: break-all;
+}
 .status-badge {
   font-size: 9px; letter-spacing: 0.08em; padding: 2px 6px;
   border: 1px solid; display: inline-block;
 }
 .status-badge.success   { color: var(--green); border-color: rgba(76,175,106,0.35); background: var(--green-dim); }
-.status-badge.error     { color: var(--red);   border-color: rgba(224,84,80,0.35);  background: var(--red-dim);   }
-.status-badge.cache_hit { color: var(--blue);  border-color: rgba(91,155,213,0.35); background: var(--blue-dim);  }
+.status-badge.error     { color: var(--red);   border-color: rgba(224,84,80,0.35);  background: var(--red-dim); }
+.status-badge.cache_hit { color: var(--blue);  border-color: rgba(91,155,213,0.35); background: var(--blue-dim); }
 .status-badge.dry_run   { color: var(--ink3);  border-color: var(--rule2); }
 .lat-bar-wrap { display: flex; align-items: center; gap: 8px; }
 .lat-bar { height: 3px; min-width: 3px; }
@@ -557,6 +612,64 @@ kbd {
 .trace-empty { padding: 56px 32px; text-align: center; color: var(--ink3); }
 .trace-empty .big { font-family: var(--font-d); font-size: 52px; letter-spacing: 0.1em; color: var(--rule2); display: block; margin-bottom: 8px; }
 
+/* ─── HISTORY PANEL ──────────────────────────────────────────────────── */
+#history-panel { overflow: hidden; }
+.history-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px; border-bottom: 1px solid var(--rule2);
+  background: var(--bg1); flex-shrink: 0;
+}
+.history-title { font-size: 10px; letter-spacing: 0.14em; color: var(--ink2); flex: 1; }
+.history-count { font-size: 10px; color: var(--ink3); }
+.history-count strong { color: var(--amber); }
+.clear-history-btn {
+  font-size: 9px; letter-spacing: 0.1em;
+  color: var(--ink4); border: 1px solid var(--rule2); padding: 4px 10px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.clear-history-btn:hover { color: var(--red); border-color: var(--red); }
+#history-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+.history-item {
+  border-bottom: 1px solid var(--rule);
+  padding: 10px 18px;
+  transition: background 0.08s;
+}
+.history-item:hover { background: var(--bg2); }
+.hi-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 5px;
+}
+.hi-ts { font-size: 9px; color: var(--ink4); }
+.hi-model {
+  font-size: 9px; color: var(--amber);
+  background: var(--amber-dim); border: 1px solid var(--amber-d);
+  padding: 1px 5px;
+}
+.hi-stats { font-size: 9px; color: var(--ink3); margin-left: auto; }
+.hi-stats .ok-text  { color: var(--green); }
+.hi-stats .err-text { color: var(--red); }
+.hi-prompt {
+  font-size: 11px; color: var(--ink); margin-bottom: 6px;
+  line-height: 1.5; word-break: break-word;
+}
+.hi-answer {
+  font-size: 10px; color: var(--ink2); line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+  border-left: 2px solid var(--rule2); padding: 6px 10px;
+  margin-bottom: 6px; max-height: 180px; overflow-y: auto;
+  background: var(--bg2);
+}
+.hi-answer.collapsed { display: none; }
+.hi-actions { display: flex; gap: 6px; }
+.hi-action-btn {
+  font-size: 9px; letter-spacing: 0.08em;
+  color: var(--ink3); border: 1px solid var(--rule2); padding: 3px 8px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.hi-action-btn:hover { color: var(--amber); border-color: var(--amber-d); }
+.history-empty { padding: 56px 32px; text-align: center; color: var(--ink3); }
+.history-empty .big { font-family: var(--font-d); font-size: 52px; color: var(--rule2); display: block; margin-bottom: 8px; letter-spacing: 0.1em; }
+
 /* ─── MODELS PANEL ─────────────────────────────────────────────────────── */
 #models-panel { overflow: hidden; }
 .models-wrap { flex: 1; overflow-y: auto; }
@@ -567,7 +680,7 @@ kbd {
   padding: 10px 20px; border-bottom: 1px solid var(--rule2);
   background: var(--bg1); position: sticky; top: 0;
 }
-.models-table td { padding: 10px 20px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+.models-table td { padding: 10px 20px; border-bottom: 1px solid var(--rule); vertical-align: middle; cursor: pointer; }
 .models-table tr:hover td { background: var(--bg2); }
 .m-name { font-size: 13px; color: var(--ink); font-weight: 500; }
 .m-active {
@@ -575,6 +688,11 @@ kbd {
   color: var(--amber); border: 1px solid var(--amber-d); background: var(--amber-dim);
   padding: 1px 5px; margin-left: 8px; vertical-align: middle;
 }
+.m-use-btn {
+  font-size: 9px; color: var(--ink3); border: 1px solid var(--rule2);
+  padding: 2px 8px; transition: color 0.1s, border-color 0.1s;
+}
+.m-use-btn:hover { color: var(--amber); border-color: var(--amber-d); }
 .tc-cap { font-size: 10px; }
 .tc-cap.yes     { color: var(--green); }
 .tc-cap.no      { color: var(--red); }
@@ -635,24 +753,34 @@ kbd {
     </div>
 
     <div class="sb-section">
+      <div class="sb-heading">MODEL</div>
+      <div class="sb-model">
+        <select class="model-sel" id="model-select">
+          <option value="">Default</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sb-section">
       <div class="sb-heading">OPTIONS</div>
       <div class="sb-options">
         <div class="opt-row" id="dry-run-toggle" title="Preview tool calls without executing">
           <div class="toggle-box" id="dry-run-box"></div>
           <span>DRY RUN</span>
         </div>
+        <button class="reload-btn" id="reload-config-btn" title="Re-read mcp.json and reconnect servers">
+          <span class="reload-icon">&#x21BA;</span>
+          <span>RELOAD CONFIG</span>
+        </button>
       </div>
     </div>
 
-    <div class="sb-section" style="flex:1">
-      <div class="sb-heading">SESSION</div>
-      <div class="sb-session">
-        <label>SESSION ID</label>
-        <input type="text" id="session-id-input" placeholder="my-session" autocomplete="off" spellcheck="false">
-        <div class="session-list" id="session-list">
-          <div style="font-size:10px;color:var(--ink4);padding:4px 0;">No sessions</div>
-        </div>
+    <div class="sb-chats">
+      <div class="sb-chats-hdr">
+        <span class="sb-chats-title">CHATS</span>
+        <button class="new-chat-btn" id="new-chat-btn">+ NEW</button>
       </div>
+      <div id="chat-list"><div style="padding:10px 14px;font-size:10px;color:var(--ink4)">No chats yet</div></div>
     </div>
   </aside>
 
@@ -662,6 +790,7 @@ kbd {
       <button class="tab-btn active" data-tab="chat">CHAT</button>
       <button class="tab-btn" data-tab="tools">TOOLS <span class="tab-badge" id="tools-badge">0</span></button>
       <button class="tab-btn" data-tab="trace">TRACE</button>
+      <button class="tab-btn" data-tab="history">HISTORY <span class="tab-badge" id="history-badge">0</span></button>
       <button class="tab-btn" data-tab="models">MODELS</button>
     </nav>
 
@@ -678,10 +807,12 @@ kbd {
         </div>
       </div>
       <div id="chat-input-area">
+        <button class="file-btn" id="file-btn" title="Attach text file">+FILE</button>
+        <input type="file" id="file-input" style="display:none" accept=".txt,.md,.py,.js,.ts,.json,.csv,.log,.xml,.yaml,.yml,.sh,.sql">
         <div class="input-wrap">
           <textarea id="prompt-input" placeholder="Ask anything — MCP tools are available…" rows="2"></textarea>
           <div class="input-footer">
-            <span class="input-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline</span>
+            <span class="input-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> run &middot; <kbd>Shift</kbd>+<kbd>Enter</kbd> newline</span>
             <span id="char-count" style="color:var(--ink4)"></span>
           </div>
         </div>
@@ -719,6 +850,18 @@ kbd {
       </div>
     </section>
 
+    <!-- HISTORY -->
+    <section class="tab-panel" id="history-panel">
+      <div class="history-toolbar">
+        <span class="history-title">RUN HISTORY</span>
+        <span class="history-count" id="history-count"><strong>0</strong> runs</span>
+        <button class="clear-history-btn" id="clear-history-btn">CLEAR ALL</button>
+      </div>
+      <div id="history-list">
+        <div class="history-empty"><span class="big">HISTORY</span>No runs yet — start a conversation.</div>
+      </div>
+    </section>
+
     <!-- MODELS -->
     <section class="tab-panel" id="models-panel">
       <div class="models-wrap" id="models-body">
@@ -728,18 +871,37 @@ kbd {
   </main>
 </div>
 
+<!-- AUTH MODAL -->
+<div id="auth-modal">
+  <div class="auth-box">
+    <h2>API KEY REQUIRED</h2>
+    <p>This dashboard is protected. Enter the key set via <code style="color:var(--amber)">UMCP_API_KEY</code> in your <code style="color:var(--amber)">.env</code> file.</p>
+    <input type="password" class="auth-input" id="auth-key-input" placeholder="Enter API key…" autocomplete="current-password">
+    <button class="auth-submit" id="auth-submit-btn">UNLOCK</button>
+    <div class="auth-err" id="auth-err">Incorrect key — try again.</div>
+  </div>
+</div>
+
 <script>
 // ─── STATE ───────────────────────────────────────────────────────────────
 const S = {
-  config: {},
-  servers: [],
-  tools: [],
-  models: [],
-  trace: [],
-  sessionId: localStorage.getItem('umcp_session') || '',
-  running: false,
+  config:         {},
+  servers:        [],
+  tools:          [],
+  models:         [],
+  trace:          [],
+  sessionId:      localStorage.getItem('umcp_session') || '',
+  // Auto ID persists across page refreshes (sessionStorage) but resets on new tab/window.
+  autoSessionId: sessionStorage.getItem('umcp_auto_session') || (() => {
+    const id = 'web_' + Math.random().toString(36).slice(2, 10);
+    sessionStorage.setItem('umcp_auto_session', id);
+    return id;
+  })(),
+  activeModel:    localStorage.getItem('umcp_model')   || '',
+  running:        false,
   totalCacheHits: 0,
-  dryRun: false,
+  dryRun:         false,
+  history:        (() => { try { return JSON.parse(localStorage.getItem('umcp_history') || '[]'); } catch { return []; } })(),
 };
 
 // ─── UTILS ───────────────────────────────────────────────────────────────
@@ -754,8 +916,8 @@ function ts() {
 }
 
 function fmtMs(ms) {
-  if (!ms) return '0ms';
-  if (ms < 1000) return ms.toFixed(0) + 'ms';
+  if (!ms && ms !== 0) return '—';
+  if (ms < 1000) return Math.round(ms) + 'ms';
   return (ms / 1000).toFixed(2) + 's';
 }
 
@@ -765,9 +927,41 @@ function fmtBytes(b) {
   return mb > 1000 ? (mb / 1000).toFixed(1) + ' GB' : mb + ' MB';
 }
 
+// ─── AUTH ─────────────────────────────────────────────────────────────────
+function getApiKey() { return localStorage.getItem('umcp_api_key') || ''; }
+
+function showAuthModal() {
+  document.getElementById('auth-modal').classList.add('open');
+  setTimeout(() => document.getElementById('auth-key-input').focus(), 80);
+}
+function hideAuthModal() {
+  document.getElementById('auth-modal').classList.remove('open');
+  document.getElementById('auth-err').style.display = 'none';
+  document.getElementById('auth-key-input').value = '';
+}
+
+document.getElementById('auth-submit-btn').addEventListener('click', async () => {
+  const key = document.getElementById('auth-key-input').value.trim();
+  if (!key) return;
+  const res = await fetch('/api/config', { headers: { 'X-API-Key': key } });
+  if (res.ok) {
+    localStorage.setItem('umcp_api_key', key);
+    hideAuthModal();
+    init();
+  } else {
+    document.getElementById('auth-err').style.display = 'block';
+  }
+});
+document.getElementById('auth-key-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('auth-submit-btn').click();
+});
+
 // ─── API ─────────────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
+  const key = getApiKey();
+  if (key) opts.headers = { ...(opts.headers || {}), 'X-API-Key': key };
   const res = await fetch(path, opts);
+  if (res.status === 401) { showAuthModal(); throw new Error('Unauthorized — enter your API key'); }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`${res.status} — ${text || res.statusText}`);
@@ -807,21 +1001,23 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(btn.dataset.tab + '-panel').classList.add('active');
-    if (btn.dataset.tab === 'trace')  refreshTrace();
+    if (btn.dataset.tab === 'trace')   refreshTrace();
+    if (btn.dataset.tab === 'history') renderHistory();
     if (btn.dataset.tab === 'models' && S.models.length === 0) loadModels();
   });
 });
 
 // ─── TOPBAR ───────────────────────────────────────────────────────────────
 function renderTopbar() {
-  document.getElementById('tb-model').textContent   = S.config.model || '—';
+  const active = S.activeModel || S.config.model || '—';
+  document.getElementById('tb-model').textContent   = active;
   document.getElementById('tb-servers').textContent = S.servers.length;
   document.getElementById('tb-tools').textContent   = S.tools.length;
   document.getElementById('tb-cache').textContent   = S.totalCacheHits;
 
   const alive = S.servers.filter(s => !s.degraded).length;
-  const dot = document.getElementById('status-dot');
-  const txt = document.getElementById('status-text');
+  const dot   = document.getElementById('status-dot');
+  const txt   = document.getElementById('status-text');
   if (alive === S.servers.length && alive > 0) {
     dot.className = 'pulse-dot';
     txt.textContent = alive + '/' + S.servers.length + ' LIVE';
@@ -846,8 +1042,24 @@ function renderSidebar() {
 
   const total = S.servers.reduce((a, s) => a + s.tool_count, 0);
   document.getElementById('sb-footer').innerHTML =
-    `<strong>${S.servers.filter(s=>!s.degraded).length}</strong> active · <strong>${total}</strong> tools`;
+    `<strong>${S.servers.filter(s=>!s.degraded).length}</strong> active &middot; <strong>${total}</strong> tools`;
 }
+
+// ─── MODEL SELECTOR ───────────────────────────────────────────────────────
+const $modelSel = document.getElementById('model-select');
+function populateModelSelector() {
+  if (!S.models.length) return;
+  $modelSel.innerHTML =
+    `<option value="">Default (${esc(S.config.model || '?')})</option>` +
+    S.models.map(m =>
+      `<option value="${esc(m.name)}" ${m.name === S.activeModel ? 'selected' : ''}>${esc(m.name)}</option>`
+    ).join('');
+}
+$modelSel.addEventListener('change', () => {
+  S.activeModel = $modelSel.value;
+  localStorage.setItem('umcp_model', S.activeModel);
+  renderTopbar();
+});
 
 // ─── OPTIONS ──────────────────────────────────────────────────────────────
 const dryRunToggle = document.getElementById('dry-run-toggle');
@@ -855,40 +1067,201 @@ const dryRunBox    = document.getElementById('dry-run-box');
 dryRunToggle.addEventListener('click', () => {
   S.dryRun = !S.dryRun;
   dryRunToggle.classList.toggle('on', S.dryRun);
-  dryRunBox.textContent = S.dryRun ? '✓' : '';
+  dryRunBox.textContent = S.dryRun ? 'x' : '';
+});
+
+document.getElementById('reload-config-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('reload-config-btn');
+  btn.style.color = 'var(--amber)';
+  try {
+    const result = await apiPost('/api/config/reload', {});
+    if (result.error) throw new Error(result.error);
+    [S.config, S.servers] = await Promise.all([api('/api/config'), api('/api/servers')]);
+    await loadTools();
+    renderTopbar();
+    renderSidebar();
+    btn.style.color = 'var(--green)';
+  } catch {
+    btn.style.color = 'var(--red)';
+  }
+  setTimeout(() => { btn.style.color = ''; }, 2200);
 });
 
 // ─── SESSIONS ─────────────────────────────────────────────────────────────
-const $sessionInput = document.getElementById('session-id-input');
-$sessionInput.value = S.sessionId;
-$sessionInput.addEventListener('input', () => {
-  S.sessionId = $sessionInput.value.trim();
-  localStorage.setItem('umcp_session', S.sessionId);
-});
+function fmtSessionDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const day   = new Date(d); day.setHours(0,0,0,0);
+  if (day.getTime() === today.getTime())
+    return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+
+function renderSessionList(sessions) {
+  const container = document.getElementById('chat-list');
+  if (!sessions.length) {
+    container.innerHTML = '<div style="padding:10px 14px;font-size:10px;color:var(--ink4)">No chats yet</div>';
+    return;
+  }
+  const now = new Date(); now.setHours(0,0,0,0);
+  const yest = new Date(now); yest.setDate(yest.getDate()-1);
+  const week = new Date(now); week.setDate(week.getDate()-7);
+  const groups = {today:[],yesterday:[],week:[],older:[]};
+  const labels = {today:'TODAY',yesterday:'YESTERDAY',week:'LAST 7 DAYS',older:'OLDER'};
+  for (const s of sessions) {
+    const d = new Date(s.updated_at||s.created_at); d.setHours(0,0,0,0);
+    if (d>=now) groups.today.push(s);
+    else if (d>=yest) groups.yesterday.push(s);
+    else if (d>=week) groups.week.push(s);
+    else groups.older.push(s);
+  }
+  const activeId = S.sessionId || S.autoSessionId;
+  let html = '';
+  for (const [key, items] of Object.entries(groups)) {
+    if (!items.length) continue;
+    html += `<div class="sg-label">${labels[key]}</div>`;
+    for (const s of items) {
+      const active = activeId === s.session_id ? 'active' : '';
+      html += `<div class="session-item ${active}" data-id="${esc(s.session_id)}">
+        <div class="si-content">
+          <div class="si-title">${esc(s.title||s.session_id)}</div>
+          <div class="si-meta">${s.turn_count||0} turns · ${fmtSessionDate(s.updated_at)}</div>
+        </div>
+        <button class="si-del" data-id="${esc(s.session_id)}">×</button>
+      </div>`;
+    }
+  }
+  container.innerHTML = html;
+  container.querySelectorAll('.session-item').forEach(el => {
+    el.addEventListener('click', e => {
+      if (e.target.classList.contains('si-del')) return;
+      loadSessionHistory(el.dataset.id);
+    });
+  });
+  container.querySelectorAll('.si-del').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      await deleteSession(btn.dataset.id);
+    });
+  });
+}
 
 async function loadSessions() {
   try {
     const sessions = await api('/api/sessions');
-    const list = document.getElementById('session-list');
-    if (!sessions.length) {
-      list.innerHTML = '<div style="font-size:10px;color:var(--ink4);padding:4px 0;">No sessions yet</div>';
-      return;
-    }
-    list.innerHTML = sessions.slice(0, 10).map(s =>
-      `<div class="session-chip ${S.sessionId === s ? 'active' : ''}" data-id="${esc(s)}">${esc(s)}</div>`
-    ).join('');
-    list.querySelectorAll('.session-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        S.sessionId = chip.dataset.id;
-        $sessionInput.value = S.sessionId;
-        localStorage.setItem('umcp_session', S.sessionId);
-        list.querySelectorAll('.session-chip').forEach(c =>
-          c.classList.toggle('active', c.dataset.id === S.sessionId)
-        );
-      });
-    });
+    renderSessionList(sessions);
   } catch {}
 }
+
+async function loadSessionHistory(sessionId) {
+  S.sessionId = sessionId;
+  localStorage.setItem('umcp_session', sessionId);
+  document.querySelectorAll('.session-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.id === sessionId)
+  );
+  $messages.innerHTML = '';
+  buildMsgBlock('assistant','<span style="color:var(--ink3)">Loading conversation…</span>');
+  try {
+    const data = await api('/api/sessions/'+encodeURIComponent(sessionId)+'/messages');
+    $messages.innerHTML = '';
+    renderConversationHistory(data.messages||[]);
+    scrollBottom();
+  } catch(e) {
+    $messages.innerHTML = '';
+    buildMsgBlock('assistant',`<span style="color:var(--red)">Failed to load: ${esc(e.message)}</span>`);
+  }
+}
+
+async function deleteSession(sessionId) {
+  try {
+    const key = getApiKey();
+    await fetch('/api/sessions/'+encodeURIComponent(sessionId), {
+      method: 'DELETE',
+      headers: key ? { 'X-API-Key': key } : {},
+    });
+    if (S.sessionId === sessionId) newChat();
+    await loadSessions();
+  } catch {}
+}
+
+function newChat() {
+  S.sessionId = '';
+  const newId = 'web_' + Math.random().toString(36).slice(2,10);
+  S.autoSessionId = newId;
+  sessionStorage.setItem('umcp_auto_session', newId);
+  localStorage.setItem('umcp_session','');
+  $messages.innerHTML = `<div class="msg-block">
+    <div class="msg-row"><span class="msg-role system-note">SYSTEM</span></div>
+    <div class="msg-body system-text">New chat started. Type a prompt and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.</div>
+  </div>`;
+  document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+  $promptInput.focus();
+}
+
+function renderConversationHistory(messages) {
+  if (!messages.length) {
+    buildMsgBlock('assistant','<span style="color:var(--ink3)">Empty conversation.</span>');
+    return;
+  }
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i];
+    if (msg.role === 'user') {
+      buildMsgBlock('user', esc(msg.content||''));
+      i++; continue;
+    }
+    if (msg.role === 'tool') { i++; continue; }
+    if (msg.role === 'assistant') {
+      const calls = msg.tool_calls||[];
+      if (calls.length) {
+        const div = document.createElement('div');
+        div.className = 'msg-block';
+        const toolsHtml = calls.map(tc => {
+          const fn = tc.function||tc;
+          return `<div class="tool-call-block collapsed" style="cursor:pointer">
+            <div class="tc-rail ok"></div>
+            <div class="tc-content"><div class="tc-top">
+              <span class="tc-kind tool">TOOL</span>
+              <span class="tc-name">${esc(fn.name||'?')}</span>
+            </div></div></div>`;
+        }).join('');
+        div.innerHTML = `<div class="msg-row"><span class="msg-role assistant">UMCP</span><span class="msg-ts" style="color:var(--ink4)">history</span></div>
+          <div class="stream-tools">${toolsHtml}</div>`;
+        $messages.appendChild(div);
+        div.querySelectorAll('.tool-call-block').forEach(el =>
+          el.addEventListener('click', () => el.classList.toggle('collapsed'))
+        );
+      } else if (msg.content && msg.content.trim()) {
+        buildMsgBlock('assistant', esc(msg.content));
+      }
+      i++; continue;
+    }
+    i++;
+  }
+}
+
+document.getElementById('new-chat-btn').addEventListener('click', newChat);
+
+// ─── FILE ATTACHMENT ──────────────────────────────────────────────────────
+const $fileInput = document.getElementById('file-input');
+document.getElementById('file-btn').addEventListener('click', () => $fileInput.click());
+$fileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const content = ev.target.result;
+    const current = $promptInput.value.trim();
+    $promptInput.value = current
+      ? `${current}\n\n--- ${file.name} ---\n${content}`
+      : `--- ${file.name} ---\n${content}`;
+    $promptInput.dispatchEvent(new Event('input'));
+    $promptInput.focus();
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
 
 // ─── TOOLS PANEL ──────────────────────────────────────────────────────────
 function renderTools(tools) {
@@ -897,7 +1270,7 @@ function renderTools(tools) {
     grid.innerHTML = '<div class="empty-state"><span class="big">0</span>No tools match.</div>';
     return;
   }
-  grid.innerHTML = tools.map((t) => `
+  grid.innerHTML = tools.map(t => `
     <div class="tool-card" data-full="${esc(t.full_name)}">
       <div class="tc-header">
         <div class="tc-srv-badge">${esc(t.server)}</div>
@@ -954,10 +1327,10 @@ async function refreshTrace() {
 }
 
 function renderTrace(entries) {
-  const calls  = entries.length;
-  const total  = entries.reduce((s, e) => s + (e.latency_ms || 0), 0);
-  const hits   = entries.filter(e => e.cache_hit).length;
-  const ok     = entries.filter(e => e.status === 'success').length;
+  const calls = entries.length;
+  const total = entries.reduce((s, e) => s + (e.latency_ms || 0), 0);
+  const hits  = entries.filter(e => e.cache_hit).length;
+  const ok    = entries.filter(e => e.status === 'success').length;
 
   document.getElementById('tr-calls').textContent = calls;
   document.getElementById('tr-ms').textContent    = fmtMs(total);
@@ -971,46 +1344,166 @@ function renderTrace(entries) {
   }
 
   const maxLat = Math.max(...entries.map(e => e.latency_ms || 0), 1);
-  const rows = entries.map((e, i) => {
+  const rowPairs = entries.map((e, i) => {
     const latPct   = Math.max(4, Math.round((e.latency_ms || 0) / maxLat * 100));
     const latClass = (e.latency_ms || 0) < 300 ? 'fast' : (e.latency_ms || 0) > 1500 ? 'slow' : 'mid';
-    const sc = e.status === 'success' ? 'success' : e.status === 'cache_hit' ? 'cache_hit' : e.status === 'dry_run' ? 'dry_run' : 'error';
-    return `<tr>
-      <td style="font-size:10px;color:var(--ink3)">${i+1}</td>
-      <td>
-        <div class="t-tool">${esc(e.tool || '?')}</div>
-        <div class="t-server">${esc(e.server || '')}</div>
-      </td>
-      <td><span class="status-badge ${sc}">${esc(e.status || '?')}</span></td>
-      <td>
-        <div class="lat-bar-wrap">
-          <div class="lat-bar ${latClass}" style="width:${latPct}px"></div>
-          <span class="lat-num">${fmtMs(e.latency_ms)}</span>
-        </div>
-      </td>
-      <td><span class="cache-badge ${e.cache_hit ? 'yes' : 'no'}">${e.cache_hit ? 'HIT' : '—'}</span></td>
-      <td style="font-size:10px;color:var(--ink3)">${e.retry_count || 0}</td>
-      <td style="font-size:10px;color:var(--ink3)">${e.iteration || 0}</td>
-    </tr>`;
+    const sc = e.status === 'success' ? 'success'
+             : e.status === 'cache_hit' ? 'cache_hit'
+             : e.status === 'dry_run' ? 'dry_run' : 'error';
+    const inputStr  = JSON.stringify(e.input  || {}, null, 2);
+    const outputStr = typeof e.output === 'string' ? e.output
+                    : e.output == null ? '' : JSON.stringify(e.output, null, 2);
+    const errorStr  = e.error || '';
+    return `
+      <tr class="trace-row" data-idx="${i}">
+        <td style="font-size:10px;color:var(--ink3)">${i+1}</td>
+        <td>
+          <div class="t-tool">${esc(e.tool || '?')}</div>
+          <div class="t-server">${esc(e.server || '')}</div>
+        </td>
+        <td><span class="status-badge ${sc}">${esc(e.status || '?')}</span></td>
+        <td>
+          <div class="lat-bar-wrap">
+            <div class="lat-bar ${latClass}" style="width:${latPct}px"></div>
+            <span class="lat-num">${fmtMs(e.latency_ms)}</span>
+          </div>
+        </td>
+        <td><span class="cache-badge ${e.cache_hit ? 'yes' : 'no'}">${e.cache_hit ? 'HIT' : '—'}</span></td>
+        <td style="font-size:10px;color:var(--ink3)">${e.retry_count || 0}</td>
+        <td style="font-size:10px;color:var(--ink3)">${e.iteration || 0}</td>
+      </tr>
+      <tr class="trace-detail-row" data-for="${i}" style="display:none">
+        <td colspan="7">
+          <div class="trace-detail">
+            <div class="td-section" style="max-width:340px">
+              <div class="td-lbl">INPUT</div>
+              <pre>${esc(inputStr)}</pre>
+            </div>
+            <div class="td-section">
+              <div class="td-lbl">OUTPUT</div>
+              <pre>${esc(outputStr.slice(0, 2000))}${outputStr.length > 2000 ? '\n…' : ''}</pre>
+            </div>
+            ${errorStr ? `<div class="td-section" style="max-width:280px"><div class="td-lbl" style="color:var(--red)">ERROR</div><pre style="color:var(--red)">${esc(errorStr)}</pre></div>` : ''}
+          </div>
+        </td>
+      </tr>`;
   }).join('');
 
-  document.getElementById('trace-scroll').innerHTML = `
+  const container = document.getElementById('trace-scroll');
+  container.innerHTML = `
     <table class="trace-table">
       <thead><tr>
         <th>#</th><th>TOOL</th><th>STATUS</th><th>LATENCY</th><th>CACHE</th><th>RETRIES</th><th>ITER</th>
       </tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rowPairs}</tbody>
     </table>`;
+
+  container.querySelectorAll('.trace-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const detail = container.querySelector(`.trace-detail-row[data-for="${row.dataset.idx}"]`);
+      if (!detail) return;
+      const open = detail.style.display !== 'none';
+      detail.style.display = open ? 'none' : '';
+      row.classList.toggle('active', !open);
+    });
+  });
 }
 
 document.getElementById('trace-refresh-btn').addEventListener('click', refreshTrace);
+
+// ─── HISTORY ──────────────────────────────────────────────────────────────
+function saveHistory(item) {
+  const entry = {
+    id: Math.random().toString(36).slice(2),
+    ts: ts(),
+    prompt: item.prompt,
+    answer: item.answer || '',
+    model:  item.model  || S.config.model || '?',
+    tool_calls_made: item.tool_calls_made  || 0,
+    total_latency_ms: item.total_latency_ms || 0,
+    success: !!item.success,
+  };
+  S.history.unshift(entry);
+  if (S.history.length > 50) S.history = S.history.slice(0, 50);
+  try { localStorage.setItem('umcp_history', JSON.stringify(S.history)); } catch {}
+  document.getElementById('history-badge').textContent = S.history.length;
+}
+
+function renderHistory() {
+  const container = document.getElementById('history-list');
+  document.getElementById('history-badge').textContent = S.history.length;
+  document.getElementById('history-count').innerHTML = `<strong>${S.history.length}</strong> runs`;
+
+  if (!S.history.length) {
+    container.innerHTML = '<div class="history-empty"><span class="big">HISTORY</span>No runs yet — start a conversation.</div>';
+    return;
+  }
+
+  container.innerHTML = S.history.map((h, i) => `
+    <div class="history-item">
+      <div class="hi-header">
+        <span class="hi-ts">${esc(h.ts)}</span>
+        <span class="hi-model">${esc(h.model)}</span>
+        <span class="hi-stats">${h.tool_calls_made} tools &middot; ${fmtMs(h.total_latency_ms)} &middot; <span class="${h.success ? 'ok-text' : 'err-text'}">${h.success ? 'OK' : 'FAIL'}</span></span>
+      </div>
+      <div class="hi-prompt">${esc(h.prompt.slice(0, 140))}${h.prompt.length > 140 ? '…' : ''}</div>
+      <div class="hi-answer collapsed" data-idx="${i}">${esc(h.answer.slice(0, 600))}${h.answer.length > 600 ? '\n…' : ''}</div>
+      <div class="hi-actions">
+        <button class="hi-action-btn hi-toggle-btn" data-idx="${i}">ANSWER</button>
+        <button class="hi-action-btn hi-rerun-btn"  data-idx="${i}">RERUN</button>
+        <button class="hi-action-btn hi-copy-btn"   data-idx="${i}">COPY</button>
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.hi-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ans = container.querySelector(`.hi-answer[data-idx="${btn.dataset.idx}"]`);
+      if (ans) {
+        ans.classList.toggle('collapsed');
+        btn.textContent = ans.classList.contains('collapsed') ? 'ANSWER' : 'HIDE';
+      }
+    });
+  });
+  container.querySelectorAll('.hi-rerun-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const h = S.history[parseInt(btn.dataset.idx)];
+      if (!h) return;
+      $promptInput.value = h.prompt;
+      $promptInput.dispatchEvent(new Event('input'));
+      document.querySelector('[data-tab="chat"]').click();
+      $promptInput.focus();
+    });
+  });
+  container.querySelectorAll('.hi-copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const h = S.history[parseInt(btn.dataset.idx)];
+      if (!h) return;
+      navigator.clipboard.writeText(h.answer).catch(() => {});
+      btn.textContent = 'COPIED!';
+      setTimeout(() => { btn.textContent = 'COPY'; }, 1600);
+    });
+  });
+}
+
+document.getElementById('clear-history-btn').addEventListener('click', () => {
+  S.history = [];
+  try { localStorage.removeItem('umcp_history'); } catch {}
+  renderHistory();
+});
 
 // ─── MODELS PANEL ─────────────────────────────────────────────────────────
 async function loadModels() {
   const body = document.getElementById('models-body');
   body.innerHTML = '<div class="models-empty"><span style="color:var(--ink3);font-size:11px">Querying Ollama…</span></div>';
   try {
-    S.models = await api('/api/models');
+    const resp = await api('/api/models');
+    S.models = resp.models || [];
+    populateModelSelector();
+    if (!resp.reachable) {
+      body.innerHTML = `<div class="models-empty"><span style="color:var(--red)">Ollama unreachable at <code>${esc(resp.ollama_url)}</code></span><br><span style="color:var(--ink3);font-size:11px;margin-top:6px;display:block">Start it with: <code style="color:var(--amber)">ollama serve</code></span></div>`;
+      return;
+    }
     if (!S.models.length) {
       body.innerHTML = '<div class="models-empty"><span class="big">0</span>No models found. Run: <code style="color:var(--amber)">ollama pull qwen2.5:7b</code></div>';
       return;
@@ -1021,7 +1514,7 @@ async function loadModels() {
         : m.tool_calling === 'no'
           ? '<span class="tc-cap no">FALLBACK</span>'
           : '<span class="tc-cap unknown">DETECT</span>';
-      const isActive = m.name === S.config.model;
+      const isActive = m.name === (S.activeModel || S.config.model);
       return `<tr>
         <td>
           <span class="m-name">${esc(m.name)}</span>
@@ -1029,18 +1522,28 @@ async function loadModels() {
         </td>
         <td>${tc}</td>
         <td class="m-size">${fmtBytes(m.size)}</td>
+        <td><button class="m-use-btn" data-name="${esc(m.name)}">USE</button></td>
       </tr>`;
     }).join('');
     body.innerHTML = `<table class="models-table">
-      <thead><tr><th>MODEL</th><th>TOOL CALLING</th><th>SIZE</th></tr></thead>
+      <thead><tr><th>MODEL</th><th>TOOL CALLING</th><th>SIZE</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+    body.querySelectorAll('.m-use-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        S.activeModel = btn.dataset.name;
+        localStorage.setItem('umcp_model', S.activeModel);
+        $modelSel.value = S.activeModel;
+        renderTopbar();
+        loadModels();
+      });
+    });
   } catch (e) {
     body.innerHTML = `<div class="models-empty"><span style="color:var(--red)">${esc(e.message)}</span></div>`;
   }
 }
 
-// ─── CHAT ─────────────────────────────────────────────────────────────────
+// ─── CHAT / STREAMING ─────────────────────────────────────────────────────
 const $messages    = document.getElementById('messages');
 const $promptInput = document.getElementById('prompt-input');
 const $runBtn      = document.getElementById('run-btn');
@@ -1049,7 +1552,7 @@ function scrollBottom() {
   requestAnimationFrame(() => { $messages.scrollTop = $messages.scrollHeight; });
 }
 
-function buildMsgBlock(role, htmlContent, extraHtml = '') {
+function buildMsgBlock(role, htmlContent) {
   const div = document.createElement('div');
   div.className = 'msg-block';
   const roleLabel = role === 'user' ? 'YOU' : role === 'assistant' ? 'UMCP' : 'SYSTEM';
@@ -1058,101 +1561,55 @@ function buildMsgBlock(role, htmlContent, extraHtml = '') {
       <span class="msg-role ${role}">${roleLabel}</span>
       <span class="msg-ts">${ts()}</span>
     </div>
-    <div class="msg-body ${role}-text">${htmlContent}</div>
-    ${extraHtml}
-  `;
+    <div class="msg-body ${role}-text">${htmlContent}</div>`;
   $messages.appendChild(div);
   scrollBottom();
   return div;
 }
 
-function buildThinkingBlock() {
+function createPendingToolBlock(tool, server) {
   const div = document.createElement('div');
-  div.className = 'msg-block';
-  div.id = '_thinking';
+  div.className = 'tool-call-block';
   div.innerHTML = `
-    <div class="msg-row">
-      <span class="msg-role assistant">UMCP</span>
-    </div>
-    <div class="thinking-block">
-      <div class="think-dots"><span></span><span></span><span></span></div>
-      <span>Processing&hellip;</span>
+    <div class="tc-rail"></div>
+    <div class="tc-content">
+      <div class="tc-top tc-pending">
+        <span class="tc-kind tool">TOOL</span>
+        <span class="tc-name">${esc(server || '?')}.${esc(tool || '?')}</span>
+        <div class="think-dots" style="margin-left:auto"><span></span><span></span><span></span></div>
+      </div>
     </div>`;
-  $messages.appendChild(div);
-  scrollBottom();
   return div;
 }
 
-function buildToolCallHTML(entry) {
-  const isCache = entry.status === 'cache_hit';
-  const isErr   = entry.status === 'error';
+function createFinalToolBlock(evt, args) {
+  const isCache = evt.status === 'cache_hit';
+  const isErr   = evt.status === 'error';
   const railCls = isCache ? 'cache' : isErr ? 'err' : 'ok';
   const kindCls = isCache ? 'cache' : isErr ? 'error' : 'tool';
   const kindLbl = isCache ? 'CACHE' : isErr ? 'ERROR' : 'TOOL';
-  const args    = entry.input && Object.keys(entry.input).length
-    ? JSON.stringify(entry.input, null, 0).slice(0, 180) : null;
-  const out = entry.output
-    ? String(entry.output).slice(0, 300) + (String(entry.output).length > 300 ? ' …' : '')
-    : entry.error || '';
+  const out = evt.output
+    ? String(evt.output).slice(0, 300) + (String(evt.output).length > 300 ? ' ...' : '')
+    : evt.error || '';
   const resClass = isErr ? 'err' : 'ok';
-  return `
-    <div class="tool-call-block collapsed">
-      <div class="tc-rail ${railCls}"></div>
-      <div class="tc-content">
-        <div class="tc-top">
-          <span class="tc-kind ${kindCls}">${kindLbl}</span>
-          <span class="tc-name">${esc(entry.server)}.${esc(entry.tool || '?')}</span>
-          <span class="tc-latency">${fmtMs(entry.latency_ms)}</span>
-        </div>
-        <div class="tc-expand">
-          ${args ? `<div class="tc-args-line">${esc(args)}</div>` : ''}
-          ${out  ? `<div class="tc-result-line ${resClass}">${esc(out)}</div>` : ''}
-        </div>
+  const argsStr  = args && Object.keys(args).length
+    ? JSON.stringify(args, null, 0).slice(0, 180) : null;
+  const div = document.createElement('div');
+  div.className = 'tool-call-block collapsed';
+  div.innerHTML = `
+    <div class="tc-rail ${railCls}"></div>
+    <div class="tc-content">
+      <div class="tc-top">
+        <span class="tc-kind ${kindCls}">${kindLbl}</span>
+        <span class="tc-name">${esc(evt.server || '?')}.${esc(evt.tool || '?')}</span>
+        <span class="tc-latency">${fmtMs(evt.latency_ms)}</span>
+      </div>
+      <div class="tc-expand">
+        ${argsStr ? `<div class="tc-args-line">${esc(argsStr)}</div>` : ''}
+        ${out ? `<div class="tc-result-line ${resClass}">${esc(out)}</div>` : ''}
       </div>
     </div>`;
-}
-
-async function typewrite(el, text, delay = 7) {
-  el.classList.add('typing-cursor');
-  let i = 0;
-  return new Promise(resolve => {
-    const go = () => {
-      if (i < text.length) {
-        // Batch chars for speed on longer texts
-        const batch = text.length > 600 ? 4 : text.length > 200 ? 2 : 1;
-        el.textContent += text.slice(i, i + batch);
-        i += batch;
-        scrollBottom();
-        setTimeout(go, delay);
-      } else {
-        el.classList.remove('typing-cursor');
-        resolve();
-      }
-    };
-    go();
-  });
-}
-
-async function replayToolCalls(entries, insertContainer) {
-  for (let i = 0; i < entries.length; i++) {
-    await new Promise(r => setTimeout(r, 80 + i * 50));
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = buildToolCallHTML(entries[i]);
-    const block = wrapper.firstElementChild;
-    block.style.opacity = '0';
-    block.style.transform = 'translateX(-6px)';
-    block.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
-    insertContainer.appendChild(block);
-    // Toggle expand on click
-    block.addEventListener('click', () => block.classList.toggle('collapsed'));
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        block.style.opacity = '1';
-        block.style.transform = 'translateX(0)';
-      });
-    });
-    scrollBottom();
-  }
+  return div;
 }
 
 async function runPrompt() {
@@ -1167,71 +1624,154 @@ async function runPrompt() {
 
   buildMsgBlock('user', esc(prompt));
 
-  const thinkDiv = buildThinkingBlock();
+  // Create assistant block up-front
+  const assistantDiv = document.createElement('div');
+  assistantDiv.className = 'msg-block';
+  assistantDiv.innerHTML = `
+    <div class="msg-row">
+      <span class="msg-role assistant">UMCP</span>
+      <span class="msg-ts">${ts()}</span>
+    </div>
+    <div class="stream-body">
+      <div class="stream-tools" id="_st_tools"></div>
+      <div class="stream-thinking" id="_st_think">
+        <div class="think-dots"><span></span><span></span><span></span></div>
+        <span>Processing&hellip;</span>
+      </div>
+      <div class="stream-answer" id="_st_ans"></div>
+    </div>`;
+  $messages.appendChild(assistantDiv);
+  scrollBottom();
   progressStart();
 
+  const $stTools = document.getElementById('_st_tools');
+  const $stThink = document.getElementById('_st_think');
+  const $stAns   = document.getElementById('_st_ans');
+  // Remove IDs to avoid collisions on next run
+  ['_st_tools','_st_think','_st_ans'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.removeAttribute('id');
+  });
+
+  // pending tool blocks keyed by tool name (FIFO per name)
+  const pendingByTool = {};
+
   try {
-    const result = await apiPost('/api/run', {
-      prompt,
-      session_id: S.sessionId || null,
-      dry_run: S.dryRun,
+    const _streamKey = getApiKey();
+    const res = await fetch('/api/run/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(_streamKey ? { 'X-API-Key': _streamKey } : {}),
+      },
+      body: JSON.stringify({
+        prompt,
+        session_id: S.sessionId || S.autoSessionId,
+        dry_run:    S.dryRun,
+        model:      S.activeModel || null,
+      }),
     });
 
-    thinkDiv.remove();
-    progressDone();
-
-    // Build assistant block
-    const assistantDiv = document.createElement('div');
-    assistantDiv.className = 'msg-block';
-    const exitColor = result.success ? 'var(--green)' : 'var(--red)';
-    assistantDiv.innerHTML = `
-      <div class="msg-row">
-        <span class="msg-role assistant">UMCP</span>
-        <span class="msg-ts">${ts()}</span>
-      </div>
-      <div class="msg-body assistant-text" id="_ans_container"></div>
-      <div class="run-stats">
-        <div class="run-stat"><strong>${result.tool_calls_made}</strong> calls</div>
-        <div class="run-stat"><strong>${result.cache_hits}</strong> cache</div>
-        <div class="run-stat"><strong>${fmtMs(result.total_latency_ms)}</strong></div>
-        <div class="run-stat ${result.success ? 'ok' : 'bad'}"><strong>${result.exit_reason}</strong></div>
-      </div>`;
-    $messages.appendChild(assistantDiv);
-    scrollBottom();
-
-    const ansContainer = document.getElementById('_ans_container');
-    ansContainer.removeAttribute('id');
-
-    // Replay tool calls
-    if (result.trace && result.trace.length) {
-      S.trace = result.trace;
-      S.totalCacheHits += result.cache_hits;
-      document.getElementById('tb-cache').textContent = S.totalCacheHits;
-      await replayToolCalls(result.trace, ansContainer);
+    if (res.status === 401) { showAuthModal(); throw new Error('Unauthorized — enter your API key'); }
+    if (!res.ok) {
+      const txt = await res.text().catch(() => res.statusText);
+      throw new Error(txt);
     }
 
-    // Typewriter answer
-    const ansEl = document.createElement('div');
-    ansEl.style.marginTop = result.trace && result.trace.length ? '8px' : '0';
-    ansContainer.appendChild(ansEl);
-    const speed = result.answer.length > 800 ? 2 : result.answer.length > 300 ? 4 : 7;
-    await typewrite(ansEl, result.answer, speed);
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finished = false;
 
-    scrollBottom();
-    loadSessions();
+    while (!finished) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
+      // SSE uses double-newline as event boundary
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop(); // keep incomplete last chunk
+
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data: ')) continue;
+        let evt;
+        try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+
+        if (evt.type === 'token') {
+          $stThink.style.display = 'none';
+          $stAns.textContent += evt.content;
+          scrollBottom();
+
+        } else if (evt.type === 'tool_start') {
+          $stThink.style.display = 'none';
+          const block = createPendingToolBlock(evt.tool, evt.server);
+          $stTools.appendChild(block);
+          if (!pendingByTool[evt.tool]) pendingByTool[evt.tool] = [];
+          pendingByTool[evt.tool].push({ el: block, args: evt.args || {} });
+          scrollBottom();
+
+        } else if (evt.type === 'tool_done') {
+          const arr     = pendingByTool[evt.tool];
+          const pending = arr && arr.shift();
+          const args    = pending ? pending.args : {};
+          const final   = createFinalToolBlock(evt, args);
+          if (pending) {
+            $stTools.replaceChild(final, pending.el);
+          } else {
+            $stTools.appendChild(final);
+          }
+          final.addEventListener('click', () => final.classList.toggle('collapsed'));
+          scrollBottom();
+
+        } else if (evt.type === 'done') {
+          finished = true;
+          $stThink.style.display = 'none';
+          S.totalCacheHits += evt.cache_hits || 0;
+          document.getElementById('tb-cache').textContent = S.totalCacheHits;
+          if (evt.trace) S.trace = evt.trace;
+
+          // Run stats row
+          const statsDiv = document.createElement('div');
+          statsDiv.className = 'run-stats';
+          statsDiv.innerHTML = `
+            <div class="run-stat"><strong>${evt.tool_calls_made}</strong> calls</div>
+            <div class="run-stat"><strong>${evt.cache_hits}</strong> cache</div>
+            <div class="run-stat"><strong>${fmtMs(evt.total_latency_ms)}</strong></div>
+            <div class="run-stat ${evt.success ? 'ok' : 'bad'}"><strong>${esc(evt.exit_reason)}</strong></div>`;
+          assistantDiv.appendChild(statsDiv);
+
+          saveHistory({
+            prompt,
+            answer:          evt.answer || '',
+            model:           S.activeModel || S.config.model,
+            tool_calls_made: evt.tool_calls_made,
+            total_latency_ms: evt.total_latency_ms,
+            success:         evt.success,
+          });
+
+          loadSessions();
+          scrollBottom();
+
+        } else if (evt.type === 'error') {
+          finished = true;
+          $stThink.style.display = 'none';
+          $stAns.innerHTML = `<span style="color:var(--red)">Error: ${esc(evt.message)}</span>`;
+        }
+      }
+    }
   } catch (err) {
-    thinkDiv.remove();
-    progressDone();
-    buildMsgBlock('assistant', `<span style="color:var(--red)">Error: ${esc(err.message)}</span>`);
+    $stThink.style.display = 'none';
+    $stAns.innerHTML = `<span style="color:var(--red)">Error: ${esc(err.message)}</span>`;
   } finally {
+    progressDone();
     S.running = false;
     $runBtn.disabled = false;
     $promptInput.focus();
   }
 }
 
-// Input binding
+// Input bindings
 $runBtn.addEventListener('click', runPrompt);
 $promptInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); runPrompt(); }
@@ -1243,15 +1783,38 @@ $promptInput.addEventListener('input', () => {
   document.getElementById('char-count').textContent = len > 20 ? len : '';
 });
 
+// ─── SERVER HEALTH POLLING (no LLM tokens) ────────────────────────────────
+async function refreshServers() {
+  try {
+    S.servers = await api('/api/servers');
+    renderTopbar();
+    renderSidebar();
+  } catch {}
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────
+let _pollingInterval = null;
 async function init() {
+  // Check auth before anything else
+  try {
+    const authStatus = await fetch('/api/auth/status').then(r => r.json()).catch(() => ({ required: false }));
+    if (authStatus.required && !getApiKey()) {
+      showAuthModal();
+      return;
+    }
+  } catch {}
+
   try {
     [S.config, S.servers] = await Promise.all([api('/api/config'), api('/api/servers')]);
     renderTopbar();
     renderSidebar();
     await loadTools();
     await loadSessions();
+    renderHistory();
     $promptInput.focus();
+    // Health polling every 30s — no LLM tokens consumed
+    if (_pollingInterval) clearInterval(_pollingInterval);
+    _pollingInterval = setInterval(refreshServers, 30000);
   } catch (e) {
     document.getElementById('status-dot').className = 'pulse-dot dead';
     document.getElementById('status-text').textContent = 'OFFLINE';

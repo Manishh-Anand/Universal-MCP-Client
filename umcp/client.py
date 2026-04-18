@@ -1,6 +1,7 @@
 """MCPClient — the primary SDK entry point."""
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
@@ -9,11 +10,14 @@ from .adapters.ollama import OllamaAdapter
 from .aggregator import ToolAggregator
 from .cache import ResponseCache
 from .config import AppConfig, ServerConfig
+from .log import configure as _configure_log, get_logger
 from .loop import AgentLoop, LoopResult
 from .plugins import PluginRegistry
 from .session import SessionStore
 from .trace import Tracer, new_trace_id
 from .transports.base import ToolInfo
+
+_log = get_logger()
 
 
 class MCPClient:
@@ -48,6 +52,7 @@ class MCPClient:
         self._connected = False
         self._plugin_registry = PluginRegistry()
         self._session_store = SessionStore(self._config.session.storage_path)
+        self._adapter_cache: dict[str, OllamaAdapter] = {}
 
         # Event hooks
         self._on_tool_call: list[Callable] = []
@@ -60,6 +65,7 @@ class MCPClient:
 
     async def connect(self) -> "MCPClient":
         """Connect to all configured MCP servers."""
+        _configure_log(self._config.logging.level, self._config.logging.output)
         session_id = new_trace_id()
         self._tracer = Tracer(
             session_id=session_id,
@@ -69,25 +75,16 @@ class MCPClient:
             base_url=self._config.ollama_base_url,
             model=self._config.default_model,
         )
+        await self._ollama.ensure_running()
         self._cache = ResponseCache(self._config.cache)
 
         servers = self._config.filter_servers(self._server_filter)
         if not servers:
-            import sys
-            print(
-                "[umcp] WARNING: No servers configured. "
-                "Add servers to mcp.json or pass --server.",
-                file=sys.stderr,
-            )
+            _log.warning("no_servers_configured", hint="Add servers to mcp.json or pass --server")
 
         failed = await self._aggregator.connect_all(servers)
         if failed:
-            import sys
-            print(
-                f"[umcp] WARNING: Could not connect to: {failed}. "
-                "Continuing with available servers.",
-                file=sys.stderr,
-            )
+            _log.warning("servers_unavailable", servers=failed, hint="Continuing with available servers")
 
         self._connected = True
         return self
@@ -97,6 +94,9 @@ class MCPClient:
         await self._aggregator.close_all()
         if self._ollama:
             await self._ollama.close()
+        for adapter in self._adapter_cache.values():
+            await adapter.close()
+        self._adapter_cache.clear()
         if self._tracer:
             self._tracer.save_last()
         if self._cache:
@@ -121,9 +121,11 @@ class MCPClient:
         dry_run: bool = False,
         stream: bool = False,
         session_id: str | None = None,
+        prior_messages: list[dict] | None = None,
         cache: bool | None = None,
         cache_ttl: int | None = None,
         system_prompt: str | None = None,
+        event_queue: asyncio.Queue | None = None,
     ) -> LoopResult:
         """Execute a single task and return the result.
 
@@ -138,16 +140,23 @@ class MCPClient:
             cache_ttl: Override cache TTL in seconds for this run.
             system_prompt: Additional text appended to the base system prompt.
         """
-        assert self._connected, "Call await client.connect() before run()"
+        if not self._connected:
+            raise RuntimeError("Call await client.connect() before run()")
 
         ollama = self._ollama
         if model and model != self._config.default_model:
-            ollama = OllamaAdapter(self._config.ollama_base_url, model)
+            if model not in self._adapter_cache:
+                self._adapter_cache[model] = OllamaAdapter(
+                    self._config.ollama_base_url, model
+                )
+            ollama = self._adapter_cache[model]
 
-        # Load prior conversation history for named sessions
-        prior_messages: list[dict] = []
+        # Load prior conversation history — session store takes priority over direct arg
+        effective_prior: list[dict] = []
         if session_id:
-            prior_messages = self._session_store.load(session_id)
+            effective_prior = self._session_store.load(session_id)
+        elif prior_messages:
+            effective_prior = prior_messages
 
         loop = AgentLoop(
             config=self._config,
@@ -163,15 +172,31 @@ class MCPClient:
             tools_whitelist=tools,
             dry_run=dry_run,
             stream=stream,
-            prior_messages=prior_messages,
+            prior_messages=effective_prior,
             cache_enabled=cache,
             cache_ttl=cache_ttl,
             system_prompt_override=system_prompt,
+            event_queue=event_queue,
         )
 
         # Persist updated history for named sessions
         if session_id and result.messages:
-            self._session_store.save(session_id, result.messages)
+            messages = result.messages
+            max_msgs = self._config.session.max_messages
+            if max_msgs > 0 and len(messages) > max_msgs:
+                system_msgs = [m for m in messages if m.get("role") == "system"]
+                non_system = [m for m in messages if m.get("role") != "system"]
+                trimmed = non_system[-(max_msgs - len(system_msgs)):]
+                messages = system_msgs + trimmed
+            self._session_store.save(session_id, messages)
+            # Auto-generate title from first user message and save metadata
+            first_user = next(
+                (m.get("content", "") for m in result.messages if m.get("role") == "user"),
+                session_id,
+            )
+            title = (first_user[:60] + "…") if len(first_user) > 60 else first_user
+            turn_count = sum(1 for m in result.messages if m.get("role") == "user")
+            self._session_store.save_meta(session_id, title.strip() or session_id, turn_count)
             # Save trace for named sessions too
             if self._tracer:
                 from dataclasses import asdict as _asdict
@@ -204,7 +229,8 @@ class MCPClient:
 
     async def list_tools(self, filter: str | None = None) -> list[ToolInfo]:
         """Return all aggregated tools, optionally filtered by glob pattern."""
-        assert self._connected, "Call connect() first"
+        if not self._connected:
+            raise RuntimeError("Call connect() first")
         tools = await self._aggregator.collect_tools()
         if filter:
             import fnmatch
@@ -217,7 +243,8 @@ class MCPClient:
         The tool name must be prefixed: e.g. 'weather.get_forecast'.
         Schema validation still runs.
         """
-        assert self._connected, "Call connect() first"
+        if not self._connected:
+            raise RuntimeError("Call connect() first")
         from .validator import validate_and_coerce
         from .loop import _find_tool
 

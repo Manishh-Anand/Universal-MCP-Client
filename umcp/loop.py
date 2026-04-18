@@ -14,6 +14,7 @@ from .aggregator import ToolAggregator
 from .cache import ResponseCache
 from .config import AppConfig
 from .filter import apply_filter
+from .log import get_logger
 from .retry import (
     RetryDecision,
     RetryReason,
@@ -64,7 +65,7 @@ class AgentLoop:
         self.ollama = ollama
         self.tracer = tracer
         self.cache = cache
-        self.plugin_registry = plugin_registry  # Phase 4 plugin hooks
+        self.plugin_registry = plugin_registry
 
     async def run(
         self,
@@ -76,6 +77,7 @@ class AgentLoop:
         cache_enabled: bool | None = None,
         cache_ttl: int | None = None,
         system_prompt_override: str | None = None,
+        event_queue: asyncio.Queue | None = None,
     ) -> LoopResult:
         """Run a single agent loop turn.
 
@@ -88,6 +90,7 @@ class AgentLoop:
             cache_enabled: Override config.cache.enabled for this run.
             cache_ttl: Override config.cache.ttl_seconds for this run.
             system_prompt_override: Additional text appended to base system prompt.
+            event_queue: If set, stream tokens and tool events into this queue for SSE delivery.
         """
         start_time = time.monotonic()
 
@@ -104,15 +107,25 @@ class AgentLoop:
         if self.config.security.sanitize_tool_descriptions:
             all_tools = [sanitize_tool(t) for t in all_tools]
 
-        # Phase 4: custom tool filter plugin
         if self.plugin_registry:
             custom_filter = self.plugin_registry.get("tool_filter")
             if custom_filter:
                 all_tools = custom_filter(all_tools, prompt)
 
+        # Build filter prompt: include last 2 user turns from history so follow-up
+        # queries ("now sort by date") still match the same server as the prior turn.
+        filter_prompt = prompt
+        if prior_messages:
+            recent_user = [
+                m["content"] for m in prior_messages[-8:]
+                if m.get("role") == "user" and m.get("content")
+            ]
+            if recent_user:
+                filter_prompt = " ".join(recent_user[-2:]) + " " + prompt
+
         filtered_tools = apply_filter(
             all_tools,
-            prompt,
+            filter_prompt,
             self.config.tool_filter,
             whitelist=tools_whitelist,
         )
@@ -123,13 +136,11 @@ class AgentLoop:
         # --- Build system prompt ---
         base_prompt = _load_prompt("base.txt")
 
-        # Phase 4: system prompt plugin
         if self.plugin_registry:
             prompt_hook = self.plugin_registry.get("system_prompt")
             if prompt_hook:
                 base_prompt = prompt_hook(base_prompt)
 
-        # CLI/SDK override
         if system_prompt_override:
             base_prompt = base_prompt + "\n\n" + system_prompt_override
 
@@ -139,7 +150,6 @@ class AgentLoop:
         else:
             system_content = base_prompt
 
-        # Inject degraded-server notice if any
         degraded_notice = self.aggregator.degraded_notice()
         if degraded_notice:
             system_content += f"\n\n{degraded_notice}"
@@ -148,9 +158,6 @@ class AgentLoop:
         session = RunSession()
         session.add_system(system_content)
 
-        # Seed with prior conversation history (chat mode continuity)
-        # Prior messages already contain the system message from last turn —
-        # we skip the system role messages from prior history so we don't duplicate.
         if prior_messages:
             for msg in prior_messages:
                 if msg.get("role") != "system":
@@ -165,12 +172,12 @@ class AgentLoop:
 
         tool_calls_made = 0
         cache_hits = 0
+        _call_counts: dict[str, int] = {}  # (tool_name:args_repr) → count for loop detection
 
         # --- Main agent loop ---
         for iteration in range(self.config.execution.max_iterations):
             session.iteration = iteration
 
-            # Total timeout check
             elapsed_ms = (time.monotonic() - start_time) * 1000
             if elapsed_ms > self.config.execution.total_timeout_ms:
                 return LoopResult(
@@ -184,15 +191,20 @@ class AgentLoop:
                     messages=session.snapshot(),
                 )
 
-            # Inject any new degraded-server notices mid-loop
             mid_notice = self.aggregator.degraded_notice()
             if mid_notice and iteration > 0:
                 session.inject_notice(mid_notice)
 
-            # Call Ollama
             try:
-                if stream:
-                    # Streaming: collect chunks, print to stdout, then work with final msg
+                if event_queue is not None:
+                    # Use chat_once for reliability — Ollama streaming is inconsistent
+                    # about including tool_calls in the done chunk across versions.
+                    response = await self.ollama.chat_once(session.messages, filtered_tools)
+                    # Emit any text content as a token event for the frontend.
+                    _content_preview = response.get("message", {}).get("content", "") or ""
+                    if _content_preview:
+                        await event_queue.put({"type": "token", "content": _content_preview})
+                elif stream:
                     response = await self._stream_and_collect(session.messages, filtered_tools)
                 else:
                     response = await self.ollama.chat_once(session.messages, filtered_tools)
@@ -212,11 +224,9 @@ class AgentLoop:
             content: str = msg.get("content", "") or ""
             native_tool_calls: list[dict] = msg.get("tool_calls", [])
 
-            # --- Fallback mode: parse <tool_call> blocks from content ---
             fallback_calls = []
             if not supports_native and not native_tool_calls:
                 fallback_calls = parse_tool_calls(content)
-                # Phase 3.5: if parse returned nothing, try JSON auto-repair first
                 if not fallback_calls:
                     repaired = auto_repair_json(content)
                     if repaired != content:
@@ -224,7 +234,6 @@ class AgentLoop:
                 if fallback_calls:
                     content = strip_tool_call_blocks(content)
 
-            # --- No tool calls → final answer ---
             if not native_tool_calls and not fallback_calls:
                 return LoopResult(
                     answer=content.strip(),
@@ -237,22 +246,35 @@ class AgentLoop:
                     messages=session.snapshot(),
                 )
 
-            # --- Append assistant message ---
             if supports_native:
                 session.add_assistant(content, native_tool_calls)
             else:
                 raw_content = msg.get("content", "")
                 session.add_assistant(raw_content)
 
-            # --- Process each tool call ---
             calls_to_process = _normalize_tool_calls(native_tool_calls, fallback_calls)
 
-            # Phase 3.5: parallel execution
+            # Loop-break: detect repeated identical tool calls (e.g. echo-loop)
+            for _tc_name, _tc_args in calls_to_process:
+                _call_key = f"{_tc_name}:{repr(sorted(_tc_args.items()) if isinstance(_tc_args, dict) else _tc_args)}"
+                _call_counts[_call_key] = _call_counts.get(_call_key, 0) + 1
+                if _call_counts[_call_key] >= 3:
+                    return LoopResult(
+                        answer=f"[Run stopped: tool '{_tc_name}' called with identical arguments 3 times — possible loop. Please rephrase your request.]",
+                        tool_calls_made=tool_calls_made,
+                        cache_hits=cache_hits,
+                        iterations=iteration + 1,
+                        total_latency_ms=(time.monotonic() - start_time) * 1000,
+                        exit_reason="loop_detected",
+                        success=False,
+                        messages=session.snapshot(),
+                    )
+
             if self.config.execution.parallel_tools and len(calls_to_process) > 1:
                 added_calls, added_hits = await self._execute_parallel(
                     calls_to_process, filtered_tools, session, supports_native,
                     retry_state, iteration, effective_cache_enabled,
-                    dry_run=dry_run,
+                    dry_run=dry_run, event_queue=event_queue,
                 )
                 tool_calls_made += added_calls
                 cache_hits += added_hits
@@ -262,10 +284,9 @@ class AgentLoop:
                         tc_name, tc_args, filtered_tools, session, supports_native,
                         retry_state, iteration, effective_cache_enabled,
                         tool_calls_made, cache_hits, start_time,
-                        dry_run=dry_run,
+                        dry_run=dry_run, event_queue=event_queue,
                     )
 
-        # Max iterations exhausted
         return LoopResult(
             answer="[Run stopped: maximum iterations reached]",
             tool_calls_made=tool_calls_made,
@@ -293,8 +314,28 @@ class AgentLoop:
                 full_content += delta
             if chunk.get("done"):
                 final_response = chunk
-        print()  # newline after stream
-        # Reconstruct a response dict compatible with chat_once format
+        print()
+        if "message" not in final_response:
+            final_response["message"] = {}
+        final_response["message"]["content"] = full_content
+        return final_response
+
+    async def _stream_to_queue(
+        self,
+        messages: list[dict[str, Any]],
+        filtered_tools: list[ToolInfo],
+        queue: asyncio.Queue,
+    ) -> dict[str, Any]:
+        """Stream tokens into an asyncio.Queue for SSE delivery."""
+        full_content = ""
+        final_response: dict[str, Any] = {}
+        async for chunk in self.ollama.chat_stream(messages, filtered_tools):
+            delta = chunk.get("message", {}).get("content", "")
+            if delta:
+                await queue.put({"type": "token", "content": delta})
+                full_content += delta
+            if chunk.get("done"):
+                final_response = chunk
         if "message" not in final_response:
             final_response["message"] = {}
         final_response["message"]["content"] = full_content
@@ -314,6 +355,7 @@ class AgentLoop:
         cache_hits: int,
         start_time: float,
         dry_run: bool = False,
+        event_queue: asyncio.Queue | None = None,
     ) -> tuple[int, int]:
         """Process a single tool call and update session. Returns (tool_calls_made, cache_hits)."""
         tool_calls_made += 1
@@ -321,7 +363,6 @@ class AgentLoop:
         trace_id = new_trace_id()
         call_start = time.monotonic()
 
-        # Validate tool name
         tool_info = _find_tool(filtered_tools, tc_name)
         if tool_info is None:
             available = [t.full_name for t in filtered_tools]
@@ -338,7 +379,6 @@ class AgentLoop:
             )
             return tool_calls_made, cache_hits
 
-        # Validate + coerce arguments
         valid, errors, coerced_args = validate_and_coerce(
             tool_info.input_schema, tc_args
         )
@@ -356,21 +396,30 @@ class AgentLoop:
             )
             return tool_calls_made, cache_hits
 
-        # Dry run
+        # Emit tool_start for SSE streaming
+        if event_queue is not None:
+            await event_queue.put({
+                "type": "tool_start",
+                "tool": tool_info.name,
+                "server": tool_info.server,
+                "args": coerced_args,
+            })
+
         if dry_run:
             return await self._handle_dry_run(
                 tc_name, coerced_args, tool_info, session, supports_native,
                 trace_id, iteration, call_start, tool_calls_made, cache_hits,
             )
 
-        # Cache check
         cache_key = None
         if effective_cache_enabled and not self.cache.is_excluded(tool_info.full_name):
             cache_key = self.cache.make_key(tc_name, coerced_args, tool_info.input_schema)
             cached_value = self.cache.get(cache_key)
             if cached_value is not None:
                 cache_hits += 1
-                result_str = str(cached_value)
+                result_str = _truncate_tool_result(
+                    str(cached_value), self.config.execution.max_tool_result_bytes
+                )
                 session.add_tool_result(result_str, native_mode=supports_native)
                 self.tracer.finish_tool_call(
                     trace_id, iteration, tool_info.server, tool_info.name,
@@ -378,17 +427,26 @@ class AgentLoop:
                     cache_hit=True, retry_count=0, start_time=call_start,
                     status="cache_hit",
                 )
+                if event_queue is not None:
+                    await event_queue.put({
+                        "type": "tool_done",
+                        "tool": tool_info.name,
+                        "server": tool_info.server,
+                        "status": "cache_hit",
+                        "latency_ms": round((time.monotonic() - call_start) * 1000, 1),
+                        "output": str(cached_value)[:400],
+                        "cache_hit": True,
+                    })
                 return tool_calls_made, cache_hits
 
-        # Execute tool (with retry)
         result_str, exec_status, exec_error = await self._execute_with_retry(
             tool_info, coerced_args, retry_state, retry_key, iteration
         )
 
-        # Cache the successful result
         if exec_status == "success" and cache_key is not None and effective_cache_enabled:
             self.cache.set(cache_key, result_str, tool_info)
 
+        result_str = _truncate_tool_result(result_str, self.config.execution.max_tool_result_bytes)
         session.add_tool_result(result_str, native_mode=supports_native)
         self.tracer.finish_tool_call(
             trace_id, iteration, tool_info.server, tool_info.name,
@@ -399,6 +457,17 @@ class AgentLoop:
             status=exec_status,
             error=exec_error,
         )
+        if event_queue is not None:
+            await event_queue.put({
+                "type": "tool_done",
+                "tool": tool_info.name,
+                "server": tool_info.server,
+                "status": exec_status,
+                "latency_ms": round((time.monotonic() - call_start) * 1000, 1),
+                "output": str(result_str)[:400] if result_str else None,
+                "cache_hit": False,
+                "error": exec_error,
+            })
         return tool_calls_made, cache_hits
 
     async def _handle_dry_run(
@@ -437,12 +506,9 @@ class AgentLoop:
         iteration: int,
         effective_cache_enabled: bool,
         dry_run: bool = False,
+        event_queue: asyncio.Queue | None = None,
     ) -> tuple[int, int]:
-        """Execute multiple independent tool calls concurrently via asyncio.gather.
-
-        Results are appended to session in call order (gathered).
-        Returns (tool_calls_added, cache_hits_added).
-        """
+        """Execute multiple independent tool calls concurrently via asyncio.gather."""
         import sys
 
         group_id = new_trace_id()
@@ -453,25 +519,54 @@ class AgentLoop:
 
         async def _run_one(tc_name: str, tc_args: dict) -> tuple[str, str, bool]:
             """Returns (result_str, status, cache_hit)."""
+            _call_start = time.monotonic()
             tool_info = _find_tool(filtered_tools, tc_name)
             if tool_info is None:
                 return f"Tool '{tc_name}' not found.", "error", False
             valid, errors, coerced = validate_and_coerce(tool_info.input_schema, tc_args)
             if not valid:
                 return f"Schema error: {'; '.join(errors)}", "error", False
+            if event_queue is not None:
+                await event_queue.put({
+                    "type": "tool_start",
+                    "tool": tool_info.name,
+                    "server": tool_info.server,
+                    "args": coerced,
+                })
             if dry_run:
                 import json as _json
                 print(f"[DRY RUN] Would call: {tc_name}({_json.dumps(coerced)})", flush=True)
+                if event_queue is not None:
+                    await event_queue.put({
+                        "type": "tool_done", "tool": tool_info.name,
+                        "server": tool_info.server, "status": "dry_run",
+                        "latency_ms": 0, "output": None, "cache_hit": False,
+                    })
                 return f"Dry run: '{tc_name}' not executed.", "dry_run", False
-            # Check cache before executing
             if effective_cache_enabled and not self.cache.is_excluded(tool_info.full_name):
                 cache_key = self.cache.make_key(tc_name, coerced, tool_info.input_schema)
                 cached_value = self.cache.get(cache_key)
                 if cached_value is not None:
+                    if event_queue is not None:
+                        latency = round((time.monotonic() - _call_start) * 1000, 1)
+                        await event_queue.put({
+                            "type": "tool_done", "tool": tool_info.name,
+                            "server": tool_info.server, "status": "cache_hit",
+                            "latency_ms": latency, "output": str(cached_value)[:400],
+                            "cache_hit": True,
+                        })
                     return str(cached_value), "cache_hit", True
             result_str, status, _ = await self._execute_with_retry(
                 tool_info, coerced, retry_state, f"{tc_name}:{iteration}", iteration
             )
+            if event_queue is not None:
+                latency = round((time.monotonic() - _call_start) * 1000, 1)
+                await event_queue.put({
+                    "type": "tool_done", "tool": tool_info.name,
+                    "server": tool_info.server, "status": status,
+                    "latency_ms": latency, "output": str(result_str)[:400] if result_str else None,
+                    "cache_hit": False,
+                })
             return result_str, status, False
 
         results = await asyncio.gather(*[_run_one(n, a) for n, a in calls_to_process])
@@ -479,6 +574,7 @@ class AgentLoop:
         total_calls = 0
         total_hits = 0
         for (tc_name, _), (result_str, _status, was_cache_hit) in zip(calls_to_process, results):
+            result_str = _truncate_tool_result(result_str, self.config.execution.max_tool_result_bytes)
             session.add_tool_result(result_str, native_mode=supports_native)
             total_calls += 1
             if was_cache_hit:
@@ -494,10 +590,7 @@ class AgentLoop:
         retry_key: str,
         iteration: int,
     ) -> tuple[str, str, str | None]:
-        """Execute a tool call with transport-error retry + degradation logic.
-
-        Returns (result_string, status, error_or_None).
-        """
+        """Execute a tool call with transport-error retry + degradation logic."""
         consecutive_failures = 0
 
         for attempt in range(self.config.execution.max_retries_per_tool + 1):
@@ -518,11 +611,9 @@ class AgentLoop:
             if result.success:
                 return str(result.content), "success", None
 
-            # Transport-level error
             error_msg = result.error or "unknown error"
             consecutive_failures += 1
 
-            # After 3 consecutive failures → degrade server
             if consecutive_failures >= 3:
                 self.aggregator.mark_degraded(tool_info.server)
                 return (
@@ -550,8 +641,30 @@ class AgentLoop:
 # Helpers
 # ------------------------------------------------------------------ #
 
+def _truncate_tool_result(result: str, max_bytes: int) -> str:
+    """Truncate a tool result string to max_bytes UTF-8 bytes."""
+    if not result:
+        return result
+    encoded = result.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return result
+    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore")
+    return truncated + f"\n[... truncated at {max_bytes // 1024} KB — ask for a specific subset]"
+
+
 def _find_tool(tools: list[ToolInfo], full_name: str) -> ToolInfo | None:
-    return next((t for t in tools if t.full_name == full_name), None)
+    # Exact match first
+    result = next((t for t in tools if t.full_name == full_name), None)
+    if result:
+        return result
+    # Fuzzy match — handles LLM mis-naming real tools (e.g. "sqlite.query" → "sqlite.read_query")
+    import difflib
+    names = [t.full_name for t in tools]
+    matches = difflib.get_close_matches(full_name, names, n=1, cutoff=0.9)
+    if matches:
+        get_logger().debug("fuzzy_tool_match", requested=full_name, matched=matches[0])
+        return next((t for t in tools if t.full_name == matches[0]), None)
+    return None
 
 
 def _normalize_tool_calls(
@@ -574,6 +687,3 @@ def _normalize_tool_calls(
     for ftc in fallback:
         result.append((ftc.name, ftc.arguments))
     return result
-
-
-

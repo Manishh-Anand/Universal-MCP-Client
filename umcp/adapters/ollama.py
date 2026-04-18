@@ -1,14 +1,19 @@
 """Ollama API adapter — drives the local LLM for tool-calling."""
 from __future__ import annotations
 
+import asyncio
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
 
+from ..log import get_logger
 from ..transports.base import ToolInfo
+
+_log = get_logger()
 
 # Models known to support native tool calling in Ollama
 _KNOWN_TOOL_CAPABLE: set[str] = {
@@ -42,6 +47,55 @@ class OllamaAdapter:
         self._client = httpx.AsyncClient(timeout=120.0)
         self._supports_tools: bool | None = None
         self._capability_cache: dict[str, bool] = _load_capability_cache()
+
+    # ------------------------------------------------------------------ #
+    # Auto-start
+    # ------------------------------------------------------------------ #
+
+    async def ensure_running(self) -> bool:
+        """Return True if Ollama is reachable. If not, try to start it and wait up to 10 s.
+
+        Safe to call multiple times — exits immediately if already reachable.
+        """
+        if await self._ping():
+            return True
+
+        _log.warning("ollama_not_reachable", action="attempting_autostart")
+        try:
+            kwargs: dict[str, Any] = {
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if sys.platform == "win32":
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            else:
+                kwargs["start_new_session"] = True
+
+            subprocess.Popen(["ollama", "serve"], **kwargs)
+        except FileNotFoundError:
+            _log.error("ollama_not_found", hint="Install from https://ollama.com")
+            return False
+        except Exception as exc:
+            _log.error("ollama_launch_failed", error=str(exc))
+            return False
+
+        for i in range(10):
+            await asyncio.sleep(1)
+            if await self._ping():
+                _log.info("ollama_started", seconds=i + 1)
+                return True
+
+        _log.warning("ollama_timeout", hint="Continuing anyway")
+        return False
+
+    async def _ping(self) -> bool:
+        """Return True if Ollama's /api/tags responds within 2 s."""
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"{self.base_url}/api/tags")
+                return resp.status_code == 200
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------ #
     # Capability detection

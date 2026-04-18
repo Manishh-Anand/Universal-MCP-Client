@@ -12,6 +12,9 @@ import math
 import re
 from typing import TYPE_CHECKING, Any
 
+# Module-level TF-IDF cache: (tools_key, vectorizer) — rebuilt only when tool list changes
+_tfidf_cache: tuple[str, Any] | None = None
+
 if TYPE_CHECKING:
     from .transports.base import ToolInfo
     from .config import ToolFilterConfig
@@ -39,7 +42,11 @@ def apply_filter(
     if whitelist:
         return _apply_whitelist(tools, whitelist)
 
-    # Step 3: strategy
+    # Step 3: short-circuit — if fewer tools than cap, no filtering needed
+    if len(tools) <= config.top_n:
+        return tools
+
+    # Step 4: strategy
     strategy = config.strategy
     if strategy == "all":
         return tools
@@ -106,12 +113,16 @@ def _keyword_filter(
     # Sort descending by score; preserve original order for ties
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    # If any tool has a non-zero score, take top_n of those
-    # If all are zero (no overlap at all), fall back to all tools (LLM decides)
-    positive = [t for s, t in scored if s > 0]
-    if positive:
-        return positive[:top_n]
-    return [t for _, t in scored][:top_n]
+    # Server affinity: if a server's best-scoring tool clears the threshold,
+    # include ALL tools from that server (e.g. sqlite.describe_table matches →
+    # sqlite.read_query must also be present). Threshold avoids weak incidental
+    # matches (e.g. "time" in git_log description) dragging in an entire server.
+    _AFFINITY_THRESHOLD = 0.15
+    relevant_servers: set[str] = {t.server for s, t in scored if s >= _AFFINITY_THRESHOLD}
+    affinity: list["ToolInfo"] = [t for _, t in scored if t.server in relevant_servers]
+    others:   list["ToolInfo"] = [t for _, t in scored if t.server not in relevant_servers]
+    remaining = max(0, top_n - len(affinity))
+    return affinity + others[:remaining]
 
 
 def _score_tool_keyword(tool: "ToolInfo", prompt_tokens: set[str]) -> float:
@@ -134,38 +145,42 @@ def _tfidf_filter(
 ) -> list["ToolInfo"]:
     """Re-rank tools by TF-IDF similarity to prompt.
 
-    Uses scikit-learn if available, falls back to keyword scoring.
+    Vectorizer is fitted on the tool corpus and cached by a hash of tool names.
+    Rebuilt only when the tool list changes. Falls back to keyword order if
+    scikit-learn is not installed.
     """
+    global _tfidf_cache
+
     if not tools:
         return tools
 
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore[import]
         from sklearn.metrics.pairwise import cosine_similarity  # type: ignore[import]
-        import numpy as np  # type: ignore[import]
     except ImportError:
-        # scikit-learn not installed — fall back to raw keyword results
         return tools[:top_n]
 
-    # Build corpus: [prompt] + [tool text for each tool]
     tool_texts = [
         f"{t.full_name} {t.description or ''}".lower()
         for t in tools
     ]
-    corpus = [prompt.lower()] + tool_texts
+    tools_key = ",".join(sorted(t.full_name for t in tools))
 
     try:
-        vectorizer = TfidfVectorizer(stop_words="english", min_df=1)
-        tfidf_matrix = vectorizer.fit_transform(corpus)
-        prompt_vec = tfidf_matrix[0]
-        tool_vecs = tfidf_matrix[1:]
+        if _tfidf_cache and _tfidf_cache[0] == tools_key:
+            vectorizer = _tfidf_cache[1]
+        else:
+            vectorizer = TfidfVectorizer(stop_words="english", min_df=1)
+            vectorizer.fit(tool_texts)
+            _tfidf_cache = (tools_key, vectorizer)
+
+        prompt_vec = vectorizer.transform([prompt.lower()])
+        tool_vecs = vectorizer.transform(tool_texts)
         sims = cosine_similarity(prompt_vec, tool_vecs).flatten()
 
-        # Sort by similarity descending
         ranked = sorted(zip(sims, tools), key=lambda x: x[0], reverse=True)
         return [t for _, t in ranked][:top_n]
     except Exception:
-        # Any sklearn error → return as-is
         return tools[:top_n]
 
 

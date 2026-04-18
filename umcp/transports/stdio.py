@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -22,17 +23,28 @@ class StdioTransport(BaseTransport):
         self._connected = False
 
     async def connect(self) -> None:
+        merged_env = {**os.environ, **self.server.env} if self.server.env else None
         params = StdioServerParameters(
             command=self.server.command,
             args=self.server.args,
-            env=self.server.env or None,
+            env=merged_env,
         )
-        read, write = await self._exit_stack.enter_async_context(stdio_client(params))
-        self._session = await self._exit_stack.enter_async_context(
-            ClientSession(read, write)
-        )
-        await self._session.initialize()
-        self._connected = True
+        try:
+            read, write = await self._exit_stack.enter_async_context(stdio_client(params))
+            self._session = await self._exit_stack.enter_async_context(
+                ClientSession(read, write)
+            )
+            await self._session.initialize()
+            self._connected = True
+        except Exception:
+            # Clean up the exit stack in THIS task so anyio cancel scopes are
+            # exited in the same task they were entered — avoids the cross-task
+            # RuntimeError when the async generator is GC'd during shutdown.
+            try:
+                await self._exit_stack.aclose()
+            except Exception:
+                pass
+            raise
 
     async def list_tools(self) -> list[ToolInfo]:
         assert self._session is not None, "StdioTransport not connected"
